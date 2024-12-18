@@ -13,17 +13,17 @@ jobs:
     - name: Set up Git repository
       uses: actions/checkout@v2
       
-    - name: Compile thesis-ru
+    - name: Compile thesis
       uses: dante-ev/latex-action@latest
       with:
-        root_file: thesis-ru.tex
+        root_file: thesis.tex
         compiler: pdflatex
         args: -interaction=nonstopmode -shell-escape
 
-    - name: Compile presentation-ru
+    - name: Compile presentation
       uses: dante-ev/latex-action@latest
       with:
-        root_file: presentation-ru.tex
+        root_file: presentation.tex
         compiler: pdflatex
         args: -interaction=nonstopmode -shell-escape
 
