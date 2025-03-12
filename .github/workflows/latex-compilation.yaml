@@ -17,15 +17,15 @@ jobs:
       uses: dante-ev/latex-action@latest
       with:
         root_file: thesis.tex
-        compiler: pdflatex
-        args: -interaction=nonstopmode -shell-escape
+        compiler: latexmk
+        args: -pdf -interaction=nonstopmode -shell-escape
 
     - name: Compile presentation
       uses: dante-ev/latex-action@latest
       with:
         root_file: presentation.tex
-        compiler: pdflatex
-        args: -interaction=nonstopmode -shell-escape
+        compiler: latexmk
+        args: -pdf -interaction=nonstopmode -shell-escape
 
     - name: Commit and push compiled PDFs
       env:
