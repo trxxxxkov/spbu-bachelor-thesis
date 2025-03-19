@@ -17,7 +17,10 @@ authors = [
 keywords = ["university", "bachelor-thesis", "spbu", "kolmogorov-arnold-networks"]
 dependencies = [
     "ipykernel",
+    "matplotlib",
+    "scikit-learn",
     "torch",
+    "torchvision",
     "pykan"
 ]
 requires-python = ">= 3.9"

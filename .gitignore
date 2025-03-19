@@ -4,6 +4,8 @@ src/trained_models/*
 !src/data/README.md
 !src/trained_models/README.md
 
+src/notebooks/00_sandbox.ipynb
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
