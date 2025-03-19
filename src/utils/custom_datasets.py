@@ -4,6 +4,7 @@ import os
 import tarfile
 import PIL
 
+import torch
 from torch.utils.data import Dataset
 from torchvision.datasets.utils import download_url
 from torchvision import transforms
@@ -12,7 +13,7 @@ DATA_DIR = "../data"
 
 
 class CUB200Dataset(Dataset):
-    """Custom PyTorch dataset class for CUB200-2011
+    """Custom PyTorch Вataset class for CUB200-2011
 
     Description: https://huggingface.co/datasets/cassiekang/cub200_dataset/blob/main/README.md
     """
@@ -90,3 +91,22 @@ class CUB200Dataset(Dataset):
         if self.transform:
             img = self.transform(img)
         return img, class_label
+
+
+class EmbeddingDataset(Dataset):
+    """Custom PyTorch Dataset class for loading embeddings and labels from disk.
+
+    Designed for datasets where embeddings and their corresponding labels are
+    stored as PyTorch tensors on a disk."""
+
+    def __init__(self, filename: str):
+        self.data = torch.load(filename)
+
+    def __len__(self) -> int:
+        return len(self.data["labels"])
+
+    def __getitem__(self, idx: int) -> dict:
+        return {
+            "embedding": self.data["embeddings"][idx],
+            "labels": self.data["labels"][idx],
+        }
