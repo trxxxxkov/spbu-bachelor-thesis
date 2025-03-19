@@ -17,6 +17,7 @@ authors = [
 keywords = ["university", "bachelor-thesis", "spbu", "kolmogorov-arnold-networks"]
 dependencies = [
     "ipykernel",
+    "ipywidgets",
     "matplotlib",
     "scikit-learn",
     "torch",

@@ -1,19 +1,21 @@
-"Implementations of custom PyTorch datasets"
+"Datasets related features and implementations of custom PyTorch datasets"
 
 import os
 import tarfile
 import PIL
 
 import torch
-from torch.utils.data import Dataset
+import torch.nn as nn
+from torch.utils.data import Dataset, DataLoader
 from torchvision.datasets.utils import download_url
 from torchvision import transforms
+from tqdm.notebook import tqdm
 
 DATA_DIR = "../data"
 
 
 class CUB200Dataset(Dataset):
-    """Custom PyTorch Вataset class for CUB200-2011
+    """Custom PyTorch Dataset class for CUB200-2011
 
     Description: https://huggingface.co/datasets/cassiekang/cub200_dataset/blob/main/README.md
     """
@@ -97,10 +99,11 @@ class EmbeddingDataset(Dataset):
     """Custom PyTorch Dataset class for loading embeddings and labels from disk.
 
     Designed for datasets where embeddings and their corresponding labels are
-    stored as PyTorch tensors on a disk."""
+    stored as PyTorch tensors on a disk.
+    """
 
     def __init__(self, filename: str):
-        self.data = torch.load(filename)
+        self.data = torch.load(os.path.join("..", "data", filename))
 
     def __len__(self) -> int:
         return len(self.data["labels"])
@@ -110,3 +113,33 @@ class EmbeddingDataset(Dataset):
             "embedding": self.data["embeddings"][idx],
             "labels": self.data["labels"][idx],
         }
+
+
+def extract_embeddings(
+    dataloader: DataLoader, model: nn.Module, output_file: str, device: str = "cpu"
+) -> None:
+    """Acquire embeddings from the model and save them to output_file alongside
+    with the corresponding labels for future use with EmbeddingDataset.
+    """
+
+    model = model.to(device)
+    model.eval()
+    embeddings = []
+    labels = []
+
+    with torch.no_grad():
+        for batch_images, batch_labels in tqdm(
+            dataloader, desc=f"Extracting embeddings to src/data/{output_file}"
+        ):
+            batch_images = batch_images.to(device)
+            batch_embeddings = model(batch_images)
+            embeddings.append(batch_embeddings.cpu())
+            labels.append(batch_labels)
+
+    embeddings_tensor = torch.cat(embeddings, dim=0)
+    labels_tensor = torch.cat(labels, dim=0)
+
+    torch.save(
+        {"embeddings": embeddings_tensor, "labels": labels_tensor},
+        os.path.join("..", "data", output_file),
+    )
