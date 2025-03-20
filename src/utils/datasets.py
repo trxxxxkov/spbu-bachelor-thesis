@@ -7,8 +7,8 @@ import PIL
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
+import torchvision.transforms as transforms
 from torchvision.datasets.utils import download_url
-from torchvision import transforms
 from tqdm.notebook import tqdm
 
 from src.utils.global_constants import DATA_DIR
@@ -30,15 +30,21 @@ class CUB200Dataset(Dataset):
         self,
         download_dir: str = DATA_DIR,
         train: bool = True,
+        download: bool = True,
         transform: transforms = None,
     ):
         # Download archive with data if necessary
-        if not os.path.exists(os.path.join(download_dir, self.filename)):
+        if download and not os.path.exists(os.path.join(download_dir, self.filename)):
             download_url(self.url, download_dir, self.filename, self.md5)
-        # Unpack downloaded archive if neccesary
-        if not os.path.exists(os.path.join(download_dir, "CUB_200_2011")):
+        # Unpack downloaded archive if there is one
+        if not os.path.exists(
+            os.path.join(download_dir, "CUB_200_2011")
+        ) and os.path.exists(os.path.join(download_dir, self.filename)):
             with tarfile.open(os.path.join(download_dir, self.filename), "r:gz") as tar:
                 tar.extractall(path=download_dir)
+        # Raise error if dataset directory wasn't created
+        if not os.path.exists(os.path.join(download_dir, "CUB_200_2011")):
+            raise RuntimeError("Dataset isn't downloaded. Repeat with 'download=True'")
         self.dataset_dir = os.path.join(download_dir, "CUB_200_2011")
         self.transform = transform
         self.image_ids = self._load_train_or_test_ids(train)
@@ -130,13 +136,18 @@ def extract_embeddings(
     with the corresponding labels for future use with EmbeddingDataset.
     """
 
+    output_file = os.path.join(DATA_DIR, output_file)
+    # Prevent repeated extraction
+    if os.path.exists(output_file):
+        print(f"File {output_file} already exists. The operation is aborted")
+        return
     model = model.to(device)
     model.eval()
     embeddings = []
     labels = []
     with torch.no_grad():
         for batch_images, batch_labels in tqdm(
-            dataloader, desc=f"Extracting embeddings to src/data/{output_file}"
+            dataloader, desc=f"Extracting embeddings to {output_file}"
         ):
             batch_images = batch_images.to(device)
             batch_embeddings = model(batch_images)
@@ -146,5 +157,5 @@ def extract_embeddings(
     labels_tensor = torch.cat(labels, dim=0)
     torch.save(
         {"embeddings": embeddings_tensor, "labels": labels_tensor},
-        os.path.join(DATA_DIR, output_file),
+        output_file,
     )
