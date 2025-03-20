@@ -130,7 +130,10 @@ class EmbeddingDataset(Dataset):
 
 
 def extract_embeddings(
-    dataloader: DataLoader, model: nn.Module, output_file: str, device: str = "cpu"
+    dataloader: DataLoader,
+    model: nn.Module,
+    output_file: str,
+    device: torch.device = torch.device("cpu"),
 ) -> None:
     """Acquire embeddings from the model and save them to output_file alongside
     with the corresponding labels for future use with EmbeddingDataset.
