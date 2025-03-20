@@ -11,7 +11,7 @@ from torchvision.datasets.utils import download_url
 from torchvision import transforms
 from tqdm.notebook import tqdm
 
-DATA_DIR = "../data"
+from src.utils.global_constants import DATA_DIR
 
 
 class CUB200Dataset(Dataset):
@@ -39,7 +39,7 @@ class CUB200Dataset(Dataset):
         if not os.path.exists(os.path.join(download_dir, "CUB_200_2011")):
             with tarfile.open(os.path.join(download_dir, self.filename), "r:gz") as tar:
                 tar.extractall(path=download_dir)
-        self.root_dir = os.path.join(download_dir, "CUB_200_2011")
+        self.dataset_dir = os.path.join(download_dir, "CUB_200_2011")
         self.transform = transform
         self.image_ids = self._load_train_or_test_ids(train)
         self.image_paths = self._load_image_paths()
@@ -49,7 +49,9 @@ class CUB200Dataset(Dataset):
         """Get a list of image IDs that belong to the specified train or test split"""
         ids = []
         with open(
-            os.path.join(self.root_dir, "train_test_split.txt"), "r", encoding="utf-8"
+            os.path.join(self.dataset_dir, "train_test_split.txt"),
+            "r",
+            encoding="utf-8",
         ) as f:
             for line in f:
                 img_id, img_is_train = (int(s) for s in line.strip().split())
@@ -61,20 +63,22 @@ class CUB200Dataset(Dataset):
         """Get a dict with image IDs and corresponding paths"""
         paths = {}
         with open(
-            os.path.join(self.root_dir, "images.txt"), "r", encoding="utf-8"
+            os.path.join(self.dataset_dir, "images.txt"), "r", encoding="utf-8"
         ) as f:
             for line in f:
                 img_id, img_path = line.strip().split()
                 img_id = int(img_id)
                 if img_id in self.image_ids:
-                    paths[img_id] = os.path.join(self.root_dir, "images", img_path)
+                    paths[img_id] = os.path.join(self.dataset_dir, "images", img_path)
         return paths
 
     def _load_class_labels(self) -> dict:
         """Get a dict with image IDs and corresponding class labels"""
         labels = {}
         with open(
-            os.path.join(self.root_dir, "image_class_labels.txt"), "r", encoding="utf-8"
+            os.path.join(self.dataset_dir, "image_class_labels.txt"),
+            "r",
+            encoding="utf-8",
         ) as f:
             for line in f:
                 img_id, img_class_label = (int(s) for s in line.strip().split())
@@ -102,17 +106,21 @@ class EmbeddingDataset(Dataset):
     stored as PyTorch tensors on a disk.
     """
 
-    def __init__(self, filename: str):
-        self.data = torch.load(os.path.join("..", "data", filename))
+    def __init__(self, filename: str, transform: transforms = None):
+        self.data = torch.load(os.path.join(DATA_DIR, filename))
+        self.transform = transform
 
     def __len__(self) -> int:
         return len(self.data["labels"])
 
     def __getitem__(self, idx: int) -> dict:
-        return {
-            "embedding": self.data["embeddings"][idx],
-            "labels": self.data["labels"][idx],
-        }
+        item = {}
+        if self.transform:
+            item["embedding"] = self.transform(self.data["embeddings"][idx])
+        else:
+            item["embedding"] = self.data["embeddings"][idx]
+        item["label"] = self.data["labels"][idx]
+        return item
 
 
 def extract_embeddings(
@@ -126,7 +134,6 @@ def extract_embeddings(
     model.eval()
     embeddings = []
     labels = []
-
     with torch.no_grad():
         for batch_images, batch_labels in tqdm(
             dataloader, desc=f"Extracting embeddings to src/data/{output_file}"
@@ -135,11 +142,9 @@ def extract_embeddings(
             batch_embeddings = model(batch_images)
             embeddings.append(batch_embeddings.cpu())
             labels.append(batch_labels)
-
     embeddings_tensor = torch.cat(embeddings, dim=0)
     labels_tensor = torch.cat(labels, dim=0)
-
     torch.save(
         {"embeddings": embeddings_tensor, "labels": labels_tensor},
-        os.path.join("..", "data", output_file),
+        os.path.join(DATA_DIR, output_file),
     )
