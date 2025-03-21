@@ -2,10 +2,6 @@
 
 ```bash
 src/  # Main directory for the project's source code
-├── data/          # Directory for datasets
-│   └── README.md  # Local use warning
-├── models/        # Directory for weights of the trained proposed models
-│   └── README.md  # Local use warning
 ├── nn_modules/             # Custom PyTorch layers for the proposed models
 │   ├── ensemble_kan.py     # 
 │   ├── kan.py              # Custom PyTorch implementation of a KAN layer
