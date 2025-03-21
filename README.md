@@ -1,6 +1,23 @@
 # spbu-bachelor-thesis
 Code and thesis document for my Bachelor's diploma on Kolmogorov-Arnold Networks with the implementation and reports included
 
+## Installation
+
+**Pre-requisites:**
+
+```bash
+Python 3.9 or higher
+pip
+```
+
+**This project can be installed using pip as follows:**
+
+```bash
+git clone https://github.com/trxxxxkov/spbu-bachelor-thesis.git
+cd spbu-bachelor-thesis
+pip install .
+```
+
 ## Project Structure
 ```bash
 spbu-bachelor-thesis/  # Main project directory
