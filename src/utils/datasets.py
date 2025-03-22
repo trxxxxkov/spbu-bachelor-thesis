@@ -5,7 +5,7 @@ import tarfile
 import PIL
 
 import torch
-import torch.nn as nn
+from torch import nn
 from torch.utils.data import Dataset, DataLoader
 from torchvision.datasets.utils import download_url
 from tqdm.notebook import tqdm

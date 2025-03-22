@@ -14,6 +14,7 @@ src/  # Main directory for the project's source code
 ├── utils/                   # Directory for miscellaneous convenience functions
 │   ├── datasets.py          # Custom PyTorch datasets and data-related utilities
 │   ├── global_constants.py  # Constants and certain params mentioned in the thesis  
-│   └── visualization.py     # Custom functions for plots and visualization
+│   ├── train_test.py        # Instruments for managing the train-test loop
+│   └── visualization.py     # Utility functions for plots and visualization
 └── README.md  # [this] Documentation for the source code directory structure
 ```

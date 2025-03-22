@@ -22,9 +22,9 @@ def plot_training_progress(
     # Main axis for the train, test losses
     ax1 = plt.gca()
     ax1.plot(
-        train_loss_history, label="Training Loss", color="tab:blue", linestyle="--"
+        train_loss_history, label="Training loss", color="tab:blue", linestyle="--"
     )
-    ax1.plot(test_loss_history, color="tab:blue", label="Test Loss")
+    ax1.plot(test_loss_history, color="tab:blue", label="Test loss")
     ax1.set_xlabel("Epoch")
     ax1.set_ylabel("Loss")
     ax1.tick_params(axis="y", labelcolor="tab:blue")
@@ -39,7 +39,7 @@ def plot_training_progress(
     ax1.grid(True, axis="x", color="black", linestyle="-", alpha=0.3)
     # Secondary axis (on the right side) for test metric
     ax2 = ax1.twinx()
-    ax2.plot(test_metric_history, color="tab:green", label="Test Metric")
+    ax2.plot(test_metric_history, color="tab:green", label="Test metric")
     ax2.set_ylabel("Metric")
     ax2.tick_params(axis="y", labelcolor="tab:green")
     # Combine legends of the left and right axes
