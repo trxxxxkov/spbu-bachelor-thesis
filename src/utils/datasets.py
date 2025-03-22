@@ -128,9 +128,10 @@ def extract_embeddings(
     model: nn.Module,
     output_file: str,
     device: torch.device = torch.device("cpu"),
+    standardize: bool = True,
 ) -> None:
-    """Acquire embeddings from the model and save them to output_file alongside
-    with the corresponding labels for future use with EmbeddingDataset.
+    """Acquire embeddings from the model, standardize and save them to output_file
+    alongside with the corresponding labels for future use with EmbeddingDataset.
     """
 
     output_file = os.path.join(DATA_DIR, output_file)
@@ -140,23 +141,26 @@ def extract_embeddings(
         return
     model = model.to(device)
     model.eval()
-    embeddings = []
-    labels = []
+    outputs = []
+    targets = []
     with torch.no_grad():
-        for batch_images, batch_labels in tqdm(
+        for batch_inputs, batch_targets in tqdm(
             dataloader, desc=f"Extracting embeddings to {output_file}"
         ):
-            batch_images = batch_images.to(device)
-            batch_embeddings = model(batch_images)
-            embeddings.append(batch_embeddings.cpu())
-            labels.append(batch_labels)
-    embeddings_tensor = torch.cat(embeddings, dim=0)
-    labels_tensor = torch.cat(labels, dim=0)
+            batch_inputs = batch_inputs.to(device)
+            batch_outputs = model(batch_inputs)
+            outputs.append(batch_outputs.cpu())
+            targets.append(batch_targets)
+    outputs = torch.cat(outputs, dim=0)
+    targets = torch.cat(targets, dim=0)
+    # Make class labels start from 0
+    targets = targets - targets.min()
     # Standardize the embedding's features (mean=0, std=1 in every column)
-    mean = embeddings_tensor.mean(dim=0, keepdim=True)
-    std = embeddings_tensor.std(dim=0, keepdim=True)
-    embeddings_tensor = (embeddings_tensor - mean) / std
+    if standardize:
+        per_feature_mean = outputs.mean(dim=0, keepdim=True)
+        per_feature_std = outputs.std(dim=0, keepdim=True)
+        outputs = (outputs - per_feature_mean) / per_feature_std
     torch.save(
-        {"embeddings": embeddings_tensor, "labels": labels_tensor},
+        {"embeddings": outputs, "labels": targets},
         output_file,
     )
