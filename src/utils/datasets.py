@@ -7,7 +7,6 @@ import PIL
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
-import torchvision.transforms as transforms
 from torchvision.datasets.utils import download_url
 from tqdm.notebook import tqdm
 
@@ -31,7 +30,7 @@ class CUB200Dataset(Dataset):
         download_dir: str = DATA_DIR,
         train: bool = True,
         download: bool = True,
-        transform: transforms = None,
+        transform=None,
     ):
         # Download archive with data if necessary
         if download and not os.path.exists(os.path.join(download_dir, self.filename)):
@@ -112,21 +111,16 @@ class EmbeddingDataset(Dataset):
     stored as PyTorch tensors on a disk.
     """
 
-    def __init__(self, filename: str, transform: transforms = None):
+    def __init__(self, filename: str):
         self.data = torch.load(os.path.join(DATA_DIR, filename))
-        self.transform = transform
 
     def __len__(self) -> int:
         return len(self.data["labels"])
 
     def __getitem__(self, idx: int) -> dict:
-        item = {}
-        if self.transform:
-            item["embedding"] = self.transform(self.data["embeddings"][idx])
-        else:
-            item["embedding"] = self.data["embeddings"][idx]
-        item["label"] = self.data["labels"][idx]
-        return item
+        embedding = self.data["embeddings"][idx]
+        label = self.data["labels"][idx]
+        return embedding, label
 
 
 def extract_embeddings(
@@ -158,6 +152,10 @@ def extract_embeddings(
             labels.append(batch_labels)
     embeddings_tensor = torch.cat(embeddings, dim=0)
     labels_tensor = torch.cat(labels, dim=0)
+    # Standardize the embedding's features (mean=0, std=1 in every column)
+    mean = embeddings_tensor.mean(dim=0, keepdim=True)
+    std = embeddings_tensor.std(dim=0, keepdim=True)
+    embeddings_tensor = (embeddings_tensor - mean) / std
     torch.save(
         {"embeddings": embeddings_tensor, "labels": labels_tensor},
         output_file,
