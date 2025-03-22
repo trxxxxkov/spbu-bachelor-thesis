@@ -8,6 +8,7 @@ def plot_training_progress(
     train_loss_history: list[float],
     test_loss_history: list[float],
     test_metric_history: list[float],
+    title: str = "Train, test losses and metric values over epochs",
 ) -> None:
     """Visualizes training progress by plotting loss curves and metrics in real-time
 
@@ -46,5 +47,5 @@ def plot_training_progress(
     lines1, labels1 = ax1.get_legend_handles_labels()
     lines2, labels2 = ax2.get_legend_handles_labels()
     ax1.legend(lines1 + lines2, labels1 + labels2, loc="upper left")
-    plt.title("Train, test losses and metric values over epochs")
+    plt.title(title)
     plt.show()

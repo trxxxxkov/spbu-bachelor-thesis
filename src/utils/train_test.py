@@ -84,7 +84,10 @@ def offline_train(
         test_loss_history.append(test_epoch_loss)
         test_metric_history.append(test_epoch_metric)
         plot_training_progress(
-            train_loss_history, test_loss_history, test_metric_history
+            train_loss_history,
+            test_loss_history,
+            test_metric_history,
+            title=f"Training progress of the {save_path} over epochs",
         )
         if (
             metric_mode == "max" and test_epoch_metric > best_metric + metric_delta
@@ -95,7 +98,7 @@ def offline_train(
         else:
             early_stopping_patience -= 1
         if early_stopping_patience == 0:
-            print(f"Early stopping triggered at epoch {epoch_idx}.")
+            print(f"Early stopping is triggered at the epoch {epoch_idx}.")
             break
     torch.save(best_model_weights, os.path.join(MODELS_DIR, save_path))
     print(f"Best metric's value: {best_metric:.5f}.")
