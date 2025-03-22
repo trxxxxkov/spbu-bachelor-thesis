@@ -128,7 +128,6 @@ def extract_embeddings(
     model: nn.Module,
     output_file: str,
     device: torch.device = torch.device("cpu"),
-    standardize: bool = True,
 ) -> None:
     """Acquire embeddings from the model, standardize and save them to output_file
     alongside with the corresponding labels for future use with EmbeddingDataset.
@@ -155,11 +154,6 @@ def extract_embeddings(
     targets = torch.cat(targets, dim=0)
     # Make class labels start from 0
     targets = targets - targets.min()
-    # Standardize the embedding's features (mean=0, std=1 in every column)
-    if standardize:
-        per_feature_mean = outputs.mean(dim=0, keepdim=True)
-        per_feature_std = outputs.std(dim=0, keepdim=True)
-        outputs = (outputs - per_feature_mean) / per_feature_std
     torch.save(
         {"embeddings": outputs, "labels": targets},
         output_file,

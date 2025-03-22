@@ -1,6 +1,6 @@
 # Prevent large files from being added to the repository
 src/data
-src/trained_models
+src/models
 src/notebooks/00_sandbox.ipynb
 
 # Byte-compiled / optimized / DLL files
