@@ -2,15 +2,98 @@
 helper instruments for managing the train-test loop, calculating performance
 metrics, and other related tasks."""
 
-import os
 import copy
+import os
+import time
 
 import torch
 from torch import nn
 from torch.utils.data import DataLoader
+from tqdm.notebook import tqdm
 
 from src.utils.global_constants import MODELS_DIR
 from src.utils.visualization import plot_training_progress
+
+
+def measure_forward_backward_time(
+    model_cls: nn.Module,
+    nruns: int = 100,
+    batch_size: int = 1024,
+    in_features: int = 1024,
+    out_features: int = None,
+    device: torch.device = torch.device("cpu"),
+):
+    """
+    Measures the average time for forward and backward passes of a given model.
+
+    Args:
+        model_cls:
+            The class of the model to benchmark. The model should accept
+            `in_features` and `out_features` as positional arguments.
+        nruns:
+            The number of runs to average the timing over.
+        batch_size:
+            The batch size of the input data.
+        in_features:
+            The number of input features for the model.
+        out_features:
+            The number of output features for the model.
+        warmup:
+            The number of warmup iterations to perform before timing. Default is 50.
+        device:
+            The device to run the model on ("cpu" or "cuda"). Default is "cpu".
+
+    Returns:
+        tuple:
+            forward_time (float):
+                The average time (in seconds) for the forward pass.
+            backward_time (float):
+                The average time (in seconds) for the backward pass.
+    """
+    nwarmup_runs = nruns // 5
+    if out_features is not None:
+        model = model_cls(in_features, out_features).to(device)
+    else:
+        model = model_cls(in_features).to(device)
+    inputs = torch.randn(batch_size, in_features).to(device)
+    # Forward pass
+    model.eval()
+    # Warmup
+    with torch.no_grad():
+        for _ in tqdm(range(nwarmup_runs), desc="Warmup", leave=False):
+            _ = model(inputs)
+    if device.type == "cuda":
+        torch.cuda.synchronize()
+    # Evaluation
+    start_time = time.perf_counter()
+    with torch.no_grad():
+        for _ in tqdm(range(nruns), desc="Forward pass"):
+            _ = model(inputs)
+    if device.type == "cuda":
+        torch.cuda.synchronize()
+    forward_time = (time.perf_counter() - start_time) / nruns
+    # Forward + Backward pass
+    model.train()
+    outputs = model(inputs)
+    grad_output = torch.ones_like(outputs)
+    # Warmup
+    for _ in tqdm(range(nwarmup_runs), desc="Warmup", leave=False):
+        outputs = model(inputs)
+        model.zero_grad()
+        outputs.backward(grad_output, retain_graph=True)
+    if device.type == "cuda":
+        torch.cuda.synchronize()
+    # Evaluation
+    start_time = time.perf_counter()
+    for _ in tqdm(range(nruns), desc="Forward+Backward pass"):
+        outputs = model(inputs)
+        model.zero_grad()
+        outputs.backward(grad_output, retain_graph=True)
+    if device.type == "cuda":
+        torch.cuda.synchronize()
+    total_time = (time.perf_counter() - start_time) / nruns
+    backward_time = total_time - forward_time
+    return forward_time, backward_time
 
 
 def offline_train(
