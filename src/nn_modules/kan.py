@@ -16,7 +16,7 @@ class KANLayer(torch.nn.Module):
         self,
         in_features: int,
         out_features: int,
-        grid_step: int = 0.3,
+        grid_step: int = 0.5,
     ):
         super().__init__()
         self.in_features = in_features

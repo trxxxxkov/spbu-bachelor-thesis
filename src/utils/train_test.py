@@ -9,7 +9,7 @@ import time
 import torch
 from torch import nn
 from torch.utils.data import DataLoader
-from tqdm.notebook import tqdm
+from tqdm import tqdm
 
 from src.utils.global_constants import MODELS_DIR
 from src.utils.visualization import plot_training_progress
@@ -50,7 +50,7 @@ def measure_forward_backward_time(
             backward_time (float):
                 The average time (in seconds) for the backward pass.
     """
-    nwarmup_runs = nruns // 5
+    nwarmup_runs = nruns // 10
     if out_features is not None:
         model = model_cls(in_features, out_features).to(device)
     else:
@@ -60,7 +60,7 @@ def measure_forward_backward_time(
     model.eval()
     # Warmup
     with torch.no_grad():
-        for _ in tqdm(range(nwarmup_runs), desc="Warmup", leave=False):
+        for _ in range(nwarmup_runs):
             _ = model(inputs)
     if device.type == "cuda":
         torch.cuda.synchronize()
@@ -77,7 +77,7 @@ def measure_forward_backward_time(
     outputs = model(inputs)
     grad_output = torch.ones_like(outputs)
     # Warmup
-    for _ in tqdm(range(nwarmup_runs), desc="Warmup", leave=False):
+    for _ in range(nwarmup_runs):
         outputs = model(inputs)
         model.zero_grad()
         outputs.backward(grad_output, retain_graph=True)
@@ -85,7 +85,7 @@ def measure_forward_backward_time(
         torch.cuda.synchronize()
     # Evaluation
     start_time = time.perf_counter()
-    for _ in tqdm(range(nruns), desc="Forward+Backward pass"):
+    for _ in tqdm(range(nruns), desc="Backward pass"):
         outputs = model(inputs)
         model.zero_grad()
         outputs.backward(grad_output, retain_graph=True)
