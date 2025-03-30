@@ -7,8 +7,15 @@ import torch.nn.functional as F
 
 
 class KANLayer(torch.nn.Module):
-    """KAN layer with activation functions parametrized as a linear
-    combination of cubic B-splines."""
+    """Highly optimized KAN layer that parametrizes the activation functions with
+    basis splines of fixed order.
+
+    Key differences from other implementations:
+    1. B-splines has a fixed order of 4 (polynomial functions of degree 3).
+    2. Output is a B-splines linear combination only (no classic activation
+        function is added and no scaling is performed).
+    3. Input range is fixed (and so is B-spline grid): [0, 1];
+    4. Has a batch normalization layer built-in;"""
 
     spline_order = 3
 
@@ -23,16 +30,11 @@ class KANLayer(torch.nn.Module):
         self.out_features = out_features
         self.grid_step = grid_step
         self.bn = torch.nn.BatchNorm1d(in_features)
-        # Coefficients for B-spline basis functions
         knots_num = math.ceil(1 / grid_step) + 1 + self.spline_order
+        # Coefficients for basis functions (aka control points)
         self.bspline_coeffs = torch.nn.Parameter(
             torch.Tensor(out_features, in_features, knots_num)
         )
-        # Each coefficient corresponds to a scaling factor for the activation function (spline)
-        # on the connection between an input and an output node.
-        # Note: activation functions are parameterized as a linear combinations of
-        # B-splines with self.bspline_coeffs serving as the weights for this combination.
-        self.spline_coeffs = torch.nn.Parameter(torch.Tensor(out_features, in_features))
         grid = (
             torch.arange(
                 -self.spline_order, knots_num - self.spline_order, dtype=torch.float
@@ -54,34 +56,25 @@ class KANLayer(torch.nn.Module):
         self._initialize_params()
 
     def _initialize_params(self):
-        """Initialize layer parameters with tailored strategies for each
-        coefficient type.
+        """Initialize B-splines' coefficients by interpolating uniform noise.
 
-        Perform several distinct initialization procedures:
-            1. Spline scaling coefficients (self.spline_coeffs):
-                Initialized using Kaiming uniform distribution with fan-in mode.
-            2. B-spline basis coefficients (self.bspline_coeffs):
-                Initialized by approximating uniform noise: a least squares problem
-                is solved for Ax = B, where
-                x - B-spline basis values computed at grid knots,
-                A - optimal basis coefficients, that approximate reference values,
-                B - reference values sampled from scaled ~U(-0.5, 0.5).
+        A least squares problem is considered for Ax = B, where
+            x - B-splines' values computed at grid knots (4 per each value in x),
+            A - optimal control points, that interpolate reference values,
+            B - reference values sampled from a scaled ~U(0, 1) distribution.
         """
         with torch.no_grad():
-            # Initialise spline scaling coefficients.
-            torch.nn.init.kaiming_uniform_(self.spline_coeffs, a=3)
-            # Get inner grid knots as they affected by the same B-splines that
-            # influence input values inside the grid range.
+            # Get knots inside the grid range
             interpolation_nodes = self.grid.expand(self.in_features, -1).T[
                 self.spline_order :
             ]
-            # B-splines values for the chosen points. This is "x" in the system of
-            # linear equations mentioned in the method's docstring.
+            # B-splines' values for the chosen points. This is "x" in the system
+            # of linear equations mentioned in the method's docstring.
             current_values = self._bsplines_values_at(interpolation_nodes).transpose(
                 0, 1
             )
             # Spline values to be interpolated by adjusting coefficients of
-            # B-spline basis functions with current_values. This is "B" in the
+            # B-splines considering current_values. This is "B" in the
             # Ax = B system of linear equations.
             reference_values = (
                 torch.randn(
@@ -90,7 +83,7 @@ class KANLayer(torch.nn.Module):
                     self.out_features,
                 )
             ) / (10 * (len(self.grid) - self.spline_order))
-            # Optimal coefficients of B-spline basis functions that interpolate the reference
+            # Optimal B-splines' coefficients that interpolate the reference
             # values
             coefficients = torch.linalg.lstsq(  # pylint: disable=E1102
                 current_values, reference_values
@@ -98,31 +91,29 @@ class KANLayer(torch.nn.Module):
             self.bspline_coeffs.data.copy_(coefficients.permute(2, 0, 1))
 
     def _bsplines_values_at(self, x: torch.Tensor):
-        """Compute values of all cubic B-spline basis functions at input points x.
+        """Compute values of all cubic B-splines at input point x.
 
-        Normalizes x to grid scale, finds spline_order+1 influencing left knots
-        per input, and evaluates normalized position in each knot's basis polynomial.
+        Normalize x to grid scale, find spline_order+1 B-splines per input that
+        defines the output value and compute B-splines at those positions.
 
             Args:
                 x: Input tensor with values in [0,1] range
 
             Returns:
                 bsplines_values: Tensor of shape [batch_size, in_features, len(grid))
-                    where each element contains the evaluated k-th left B-spline basis
-                    function's contribution at x (for k in range(0, spline_order+1))
+                    where each element contains the evaluated i-th left B-splines
+                    at point x.
         """
-        s = (x - self.grid[0]) / self.grid_step
-        closest_left_knot = torch.floor(s).long()
-        s_frac = s - closest_left_knot
+        x_norm = (x - self.grid[0]) / self.grid_step
+        closest_left_knot = torch.floor(x_norm).long()
         bsplines_values = torch.zeros((*x.shape, len(self.grid)), device=x.device)
         for i in range(4):
-            # Retrieve coefficients for the explicit formula of B-spline for the
+            # Retrieve coefficients for the explicit formula of a B-spline for the
             # current interval
             coeff_row = self.cubic_bspline_formula[3 - i]
-            # A spline knot to evaluate x at
             ith_left_knot = closest_left_knot - 3 + i
-            # An argument to for the corresponding explicit formula
-            ith_left_bspline_arg = (3 - i) + s_frac
+            # Calculate input value for the i-th left knot considering it's distance
+            ith_left_bspline_arg = (3 - i) + (x_norm - closest_left_knot)
             ith_left_bspline_value = (
                 coeff_row[0] * ith_left_bspline_arg.pow(3)
                 + coeff_row[1] * ith_left_bspline_arg.pow(2)
@@ -137,13 +128,11 @@ class KANLayer(torch.nn.Module):
         return bsplines_values.contiguous()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Calculate output values as a linear combination of B-splines(x) and
-        scaled coefficients of the corresponding B-splines"""
+        """Calculate output values as a linear combination of B-splines(x)"""
         # Normalize and clip input vales to fit in the fixed spline grids' range
         x = torch.clip(self.bn(x), self.grid[self.spline_order], self.grid[-1])
-        scaled_bspline_coeffs = self.bspline_coeffs * self.spline_coeffs.unsqueeze(-1)
         output = F.linear(  # pylint: disable=E1102
             self._bsplines_values_at(x).view(x.shape[0], -1),
-            scaled_bspline_coeffs.view(self.out_features, -1),
+            self.bspline_coeffs.view(self.out_features, -1),
         )
         return output
