@@ -15,6 +15,17 @@ from src.utils.global_constants import MODELS_DIR
 from src.utils.visualization import plot_training_progress
 
 
+def mean_per_class_accuracy(outputs: torch.Tensor, targets: torch.Tensor) -> float:
+    """Matric: averaged accuracy for each class"""
+    preds = outputs.argmax(dim=1)
+    class_total = torch.zeros(targets.max() + 1)
+    class_correct = torch.zeros(targets.max() + 1)
+    for i, label in enumerate(targets):
+        class_total[label] += 1
+        class_correct[label] += (targets[i] == preds[i]).item()
+    return (class_correct / (class_total + 1e-8)).mean().item()
+
+
 def measure_forward_backward_time(
     model_cls: nn.Module,
     nruns: int = 100,
@@ -96,7 +107,7 @@ def measure_forward_backward_time(
     return forward_time, backward_time
 
 
-def offline_train(
+def train_offline(
     model: nn.Module,
     save_path: str,
     trainloader: DataLoader,
@@ -110,8 +121,8 @@ def offline_train(
     metric_mode: str = "max",
     device: str = "cpu",
 ) -> None:
-    """
-    Trains a neural network model with early stopping and performance monitoring.
+    """Train a model on all classes and plot losses and metric at
+    each epoch.
 
     Args:
         model:
@@ -148,23 +159,15 @@ def offline_train(
     early_stopping_patience = early_stopping
 
     for epoch_idx in range(num_epochs):
-        model.train()
-        running_loss = 0
-        for batch_inputs, batch_targets in trainloader:
-            batch_inputs = batch_inputs.to(device)
-            batch_targets = batch_targets.to(device)
-            optimizer.zero_grad()
-            batch_outputs = model(batch_inputs)
-            batch_loss = criterion(batch_outputs, batch_targets)
-            batch_loss.backward()
-            optimizer.step()
-            running_loss += batch_loss.item()
-        train_epoch_loss = running_loss / len(trainloader)
+        train_epoch_loss = _train_loop(model, criterion, optimizer, trainloader, device)
         train_loss_history.append(train_epoch_loss)
-        test_epoch_loss, test_epoch_metric = offline_test(
-            model, testloader, criterion, metric, device
+        test_epoch_loss, epoch_preds, epoch_targets = _test_loop(
+            model, criterion, testloader, device
         )
         test_loss_history.append(test_epoch_loss)
+        test_epoch_metric = metric(
+            torch.cat(epoch_preds, dim=0), torch.cat(epoch_targets, dim=0)
+        )
         test_metric_history.append(test_epoch_metric)
         plot_training_progress(
             train_loss_history,
@@ -189,52 +192,39 @@ def offline_train(
     model.load_state_dict(best_model_weights)
 
 
-def offline_test(
-    model: nn.Module, testloader: DataLoader, criterion: nn.Module, metric, device="cpu"
-) -> tuple[float, float]:
-    """Evaluates a model on test/validation data and computes performance metrics.
+def _train_loop(
+    model: nn.Module,
+    criterion: nn.Module,
+    optimizer: torch.optim.Optimizer,
+    dataloader: DataLoader,
+    device,
+):
+    model.train()
+    epoch_loss = 0
+    for batch_inputs, batch_targets in dataloader:
+        batch_inputs = batch_inputs.to(device)
+        batch_targets = batch_targets.to(device)
+        optimizer.zero_grad()
+        batch_outputs = model(batch_inputs)
+        batch_loss = criterion(batch_outputs, batch_targets)
+        batch_loss.backward()
+        optimizer.step()
+        epoch_loss += batch_loss.item()
+    return epoch_loss / len(dataloader)
 
-    Args:
-        testloader:
-            Data loader for test/validation data
-        model:
-            Trained model to evaluate
-        criterion:
-            Loss function for loss calculation
-        metric:
-            Evaluation metric callable (outputs, targets) -> float
-        device:
-            Compute device ('cpu' or 'cuda')
 
-    Returns:
-        tuple: (test_loss, test_metric) where
-            test_loss: Average loss across all test batches
-            test_metric: Computed metric on full test set
-    """
+def _test_loop(model: nn.Module, criterion: nn.Module, dataloader: DataLoader, device):
     model.eval()
-    outputs = []
+    epoch_loss = 0
+    preds = []
     targets = []
-    running_loss = 0
     with torch.no_grad():
-        for batch_inputs, batch_targets in testloader:
+        for batch_inputs, batch_targets in dataloader:
             batch_inputs = batch_inputs.to(device)
             batch_targets = batch_targets.to(device)
             batch_outputs = model(batch_inputs)
             batch_loss = criterion(batch_outputs, batch_targets)
-            running_loss += batch_loss.item()
-            outputs.append(batch_outputs)
+            epoch_loss += batch_loss.item()
+            preds.append(batch_outputs)
             targets.append(batch_targets)
-    test_epoch_metric = metric(torch.cat(outputs, dim=0), torch.cat(targets, dim=0))
-    test_epoch_loss = running_loss / len(testloader)
-    return test_epoch_loss, test_epoch_metric
-
-
-def mean_per_class_accuracy(outputs: torch.Tensor, targets: torch.Tensor) -> float:
-    """Compute accuracy for each class independently, then average across all classes"""
-    preds = outputs.argmax(dim=1)
-    class_total = torch.zeros(targets.max() + 1)
-    class_correct = torch.zeros(targets.max() + 1)
-    for i, label in enumerate(targets):
-        class_total[label] += 1
-        class_correct[label] += (targets[i] == preds[i]).item()
-    return (class_correct / (class_total + 1e-8)).mean().item()
+    return epoch_loss / len(dataloader), preds, targets
