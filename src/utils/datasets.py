@@ -5,15 +5,13 @@ import tarfile
 import PIL
 
 import torch
-from torch import nn
-from torch.utils.data import Dataset, DataLoader, Sampler
 from torchvision.datasets.utils import download_url
 from tqdm.notebook import tqdm
 
 from src.utils.global_constants import DATA_DIR
 
 
-class CUB200Dataset(Dataset):
+class CUB200Dataset(torch.utils.data.Dataset):
     """Custom PyTorch Dataset class for CUB200-2011
 
     Description: https://huggingface.co/datasets/cassiekang/cub200_dataset/blob/main/README.md
@@ -104,7 +102,7 @@ class CUB200Dataset(Dataset):
         return img, class_label
 
 
-class EmbeddingDataset(Dataset):
+class EmbeddingDataset(torch.utils.data.Dataset):
     """Custom PyTorch Dataset class for loading embeddings and labels from disk.
 
     Designed for datasets where embeddings and their corresponding labels are
@@ -123,10 +121,10 @@ class EmbeddingDataset(Dataset):
         return embedding, label
 
 
-class ClassSpecificSampler(Sampler):
+class ClassSpecificSampler(torch.utils.data.Sampler):
     """Iterates over indices of samples with specified labels."""
 
-    def __init__(self, dataset: Dataset, target_classes: torch.Tensor):
+    def __init__(self, dataset: torch.utils.data.Dataset, target_classes: torch.Tensor):
         super().__init__()
         self.dataset = dataset
         self.target_classes = target_classes
@@ -145,8 +143,8 @@ class ClassSpecificSampler(Sampler):
 
 
 def extract_embeddings(
-    dataloader: DataLoader,
-    model: nn.Module,
+    dataloader: torch.utils.data.DataLoader,
+    model: torch.nn.Module,
     output_file: str,
     device: torch.device = torch.device("cpu"),
 ) -> None:

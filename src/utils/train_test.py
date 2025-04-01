@@ -7,8 +7,6 @@ import os
 import time
 
 import torch
-from torch import nn
-from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from src.utils.global_constants import MODELS_DIR
@@ -27,7 +25,7 @@ def mean_per_class_accuracy(outputs: torch.Tensor, targets: torch.Tensor) -> flo
 
 
 def measure_forward_backward_time(
-    model_cls: nn.Module,
+    model_cls: torch.nn.Module,
     nruns: int = 100,
     batch_size: int = 1024,
     in_features: int = 1024,
@@ -108,18 +106,18 @@ def measure_forward_backward_time(
 
 
 def train_offline(
-    model: nn.Module,
+    model: torch.nn.Module,
     save_path: str,
-    trainloader: DataLoader,
-    testloader: DataLoader,
-    criterion: nn.Module,
-    metric,
+    trainloader: torch.utils.data.DataLoader,
+    testloader: torch.utils.data.DataLoader,
+    criterion: torch.nn.Module,
+    metric: callable,
     optimizer: torch.optim.Optimizer,
     num_epochs: int = 100,
     early_stopping: int = 10,
     metric_delta: float = 0.001,
     metric_mode: str = "max",
-    device: str = "cpu",
+    device: torch.device = torch.device("cpu"),
 ) -> None:
     """Train a model on all classes and plot losses and metric at
     each epoch.
@@ -193,11 +191,11 @@ def train_offline(
 
 
 def _train_loop(
-    model: nn.Module,
-    criterion: nn.Module,
+    model: torch.nn.Module,
+    criterion: torch.nn.Module,
     optimizer: torch.optim.Optimizer,
-    dataloader: DataLoader,
-    device,
+    dataloader: torch.utils.data.DataLoader,
+    device: torch.device,
 ):
     model.train()
     epoch_loss = 0
@@ -213,7 +211,12 @@ def _train_loop(
     return epoch_loss / len(dataloader)
 
 
-def _test_loop(model: nn.Module, criterion: nn.Module, dataloader: DataLoader, device):
+def _test_loop(
+    model: torch.nn.Module,
+    criterion: torch.nn.Module,
+    dataloader: torch.utils.data.DataLoader,
+    device: torch.device,
+):
     model.eval()
     epoch_loss = 0
     preds = []
