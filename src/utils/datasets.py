@@ -6,7 +6,7 @@ import PIL
 
 import torch
 from torch import nn
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, Sampler
 from torchvision.datasets.utils import download_url
 from tqdm.notebook import tqdm
 
@@ -121,6 +121,27 @@ class EmbeddingDataset(Dataset):
         embedding = self.data["embeddings"][idx]
         label = self.data["labels"][idx]
         return embedding, label
+
+
+class ClassSpecificSampler(Sampler):
+    """Iterates over indices of samples with specified labels."""
+
+    def __init__(self, dataset: Dataset, target_classes: torch.Tensor):
+        super().__init__()
+        self.dataset = dataset
+        self.target_classes = target_classes
+        self.indices = [
+            idx
+            for idx, (_, label) in enumerate(dataset)
+            if label in self.target_classes
+        ]
+
+    def __iter__(self):
+        indices_permutation = torch.randperm(len(self.indices))
+        return iter(self.indices[i] for i in indices_permutation)
+
+    def __len__(self):
+        return len(self.indices)
 
 
 def extract_embeddings(
