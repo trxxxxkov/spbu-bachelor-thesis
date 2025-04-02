@@ -136,3 +136,23 @@ class KANLayer(torch.nn.Module):
             self.bspline_coeffs.view(self.out_features, -1),
         )
         return output
+
+
+class BaselineKAN(torch.nn.Module):
+    """Kolmogorov-Arnold Network model used as a reference for performance comparison
+
+    This model is trained offline and serves as a baseline for evaluating the
+    performance of proposed models trained in an online learning setting.
+    """
+
+    def __init__(
+        self,
+        input_dim: int = 2048,
+        output_dim: int = 200,
+    ):
+        super().__init__()
+        # No hidden layers added to achieve comparable number of parameters
+        self.classifier = KANLayer(input_dim, output_dim)
+
+    def forward(self, x: torch.Tensor):
+        return self.classifier(x)

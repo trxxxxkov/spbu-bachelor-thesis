@@ -7,18 +7,37 @@ import os
 import time
 
 import torch
+from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from src.utils.global_constants import MODELS_DIR
 from src.utils.visualization import plot_training_progress
+from src.utils.datasets import EmbeddingDataset
+from src.nn_modules.kan import BaselineKAN
+from src.nn_modules.mlp import BaselineMLP
 
 
-class MeanPerClassAccuracy:
-    """A metric: classification accuracy averaged over all classes"""
+class CustomMetric:
+    """A base class with essential functionality for a metric to be used in other
+    utility functions."""
 
     def __init__(self):
-        self.best: float = -float("inf")
+        self.to_be_maximized = True
         self.min_increase = 1e-3
+        self.best = -float("inf")
+
+    def set_new_best(self, new_best: float) -> bool:
+        """Check if a new metric's value is better than the stored one and return
+        True if the stored value was updated."""
+        sign = 1 if self.to_be_maximized else -1
+        if (new_best - self.best) * sign > self.min_increase:
+            self.best = new_best
+            return True
+        return False
+
+
+class MeanPerClassAccuracy(CustomMetric):
+    """A metric: classification accuracy averaged over all classes"""
 
     def __call__(self, preds: torch.Tensor, targets: torch.Tensor) -> float:
         preds = preds.argmax(dim=1)
@@ -30,14 +49,70 @@ class MeanPerClassAccuracy:
         # +1e-8 for numerical stability in case if class_total == 0
         return (class_correct / (class_total + 1e-8)).mean().item()
 
-    def set_new_best(self, new_best: float) -> bool:
-        """Check if a new metric's value is better than the stored one and return
-        True if the stored value was updated."""
-        if new_best > self.best + self.min_increase:
-            self.best = new_best
-            return True
-        else:
-            return False
+
+class OmegaBase(CustomMetric):
+    """A metric: measures the model's retention of the first session, after
+    learning in later study sessions.
+
+        Omega_base = 1/(T-1) * sum_{i=2}^T (a_{base,i} / a_{ideal}),
+
+    where
+    T - total number of study sessions;
+    i - index of the current session;
+    a_{base,i} - MPC accuracy on the first session (base set) after i new
+    sessions have been learned,
+    a_{ideal} - offline KAN/MLP MPC accuracy."""
+
+    def __init__(self, study_sessions: tuple[torch.Tensor], baseline_name: str):
+        super().__init__()
+        self.study_sessions = study_sessions
+        self.curr_session_idx = 0
+        self.ideal = _get_baseline_accuracy(baseline_name)
+
+    def __call__(self, preds: torch.Tensor, targets: torch.Tensor) -> float:
+        pass
+
+
+class OmegaNew:
+    """A metric: measures the model's ability to immediately recall new tasks.
+
+        Omega_new = 1/(T-1) * sum_{i=2}^T (a_{new,i}),
+
+    where
+    T - total number of study sessions;
+    i - index of the current session;
+    a_{new,i} - MPC accuracy for session i immediately after it is learned."""
+
+    def __init__(self, study_sessions: tuple[torch.Tensor]):
+        super().__init__()
+        self.study_sessions = study_sessions
+        self.curr_session_idx = 0
+
+    def __call__(self, preds: torch.Tensor, targets: torch.Tensor) -> float:
+        pass
+
+
+class OmegaAll:
+    """A metric: Measures how well a model both retains prior knowledge and
+    acquires new information.
+
+        Omega_all = 1/(T-1) * sum_{i=2}^T (a_{all,i} / a_{ideal}),
+
+    where
+    T - total number of study sessions;
+    i - index of the current session;
+    a_{all,i} - MPC accuracy of all of the test data for the classes seen to
+    this point,
+    a_{ideal} - offline KAN/MLP MPC accuracy."""
+
+    def __init__(self, study_sessions: tuple[torch.Tensor], baseline_name: str):
+        super().__init__()
+        self.study_sessions = study_sessions
+        self.curr_session_idx = 0
+        self.ideal = _get_baseline_accuracy(baseline_name)
+
+    def __call__(self, preds: torch.Tensor, targets: torch.Tensor) -> float:
+        pass
 
 
 def measure_forward_backward_time(
@@ -180,21 +255,43 @@ def epoch_loop(
     logs = {}
     if train:
         logs["train_loss"] = _train_loop(
-            model, criterion, optimizer, trainloader, device
+            model, trainloader, criterion, optimizer, device
         )
     if test:
         logs["test_loss"], logs["preds"], logs["targets"] = _test_loop(
-            model, criterion, testloader, device
+            model, testloader, criterion, device
         )
     return logs
 
 
+def get_study_sessions(
+    dataset: torch.utils.data.Dataset, base_size: int, session_size: int = 1
+) -> tuple[torch.Tensor]:
+    """Separate labels into non-overlapping groups for study sessions in CIL
+
+    Args:
+        dataset: a PyTorch dataset to be used in CIL;
+        base_size: number of classes in the first study session (usually
+            base_size >> session_size);
+        session_size: number of classes added in each study session.
+
+    Returns:
+        A tuple of 1-D tensors with class indices for i-th study session."""
+
+    labels = torch.tensor([labels for _, labels in dataset]).unique()
+    shuffled_labels = labels[torch.randperm(labels.shape[0])]
+    # The first study session may include more classes than others
+    init_labels = shuffled_labels[:base_size]
+    shuffled_labels = torch.split(shuffled_labels[base_size:], session_size)
+    return (init_labels,) + shuffled_labels
+
+
 def _train_loop(
     model: torch.nn.Module,
+    dataloader: torch.utils.data.DataLoader,
     criterion: torch.nn.Module,
     optimizer: torch.optim.Optimizer,
-    dataloader: torch.utils.data.DataLoader,
-    device: torch.device,
+    device: torch.device = torch.device("cpu"),
 ) -> float:
     """Optimize model on a train dataset and return loss averaged over batches"""
     model.train()
@@ -213,9 +310,9 @@ def _train_loop(
 
 def _test_loop(
     model: torch.nn.Module,
-    criterion: torch.nn.Module,
     dataloader: torch.utils.data.DataLoader,
-    device: torch.device,
+    criterion: torch.nn.Module = None,
+    device: torch.device = torch.device("cpu"),
 ) -> tuple[float, list[torch.Tensor], list[torch.Tensor]]:
     """Get model's predictions on a test dataset and report logs"""
     model.eval()
@@ -227,8 +324,25 @@ def _test_loop(
             batch_inputs = batch_inputs.to(device)
             batch_targets = batch_targets.to(device)
             batch_outputs = model(batch_inputs)
-            batch_loss = criterion(batch_outputs, batch_targets)
-            epoch_loss += batch_loss.item()
+            if criterion is not None:
+                batch_loss = criterion(batch_outputs, batch_targets)
+                epoch_loss += batch_loss.item()
             preds.append(batch_outputs)
             targets.append(batch_targets)
     return epoch_loss / len(dataloader), preds, targets
+
+
+def _get_baseline_accuracy(baseline_name: str, dataset_name="cub200_test_embed.pt"):
+    """Download weights for a baseline and run a test loop to calculate accuracy"""
+    # baseline_name - "kan" | "mlp"
+    if baseline_name == "kan":
+        model = BaselineKAN()
+    else:
+        model = BaselineMLP()
+    state_dict = torch.load(os.path.join(MODELS_DIR, f"baseline_{baseline_name}.pth"))
+    model.load_state_dict(state_dict)
+    testset = EmbeddingDataset(dataset_name)
+    testloader = DataLoader(testset, batch_size=128, num_workers=2)
+    _, preds, targets = _test_loop(model, testloader)
+    metric = MeanPerClassAccuracy()
+    return metric(torch.cat(preds), torch.cat(targets))
