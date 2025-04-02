@@ -13,15 +13,31 @@ from src.utils.global_constants import MODELS_DIR
 from src.utils.visualization import plot_training_progress
 
 
-def mean_per_class_accuracy(outputs: torch.Tensor, targets: torch.Tensor) -> float:
-    """Matric: averaged accuracy for each class"""
-    preds = outputs.argmax(dim=1)
-    class_total = torch.zeros(targets.max() + 1)
-    class_correct = torch.zeros(targets.max() + 1)
-    for i, label in enumerate(targets):
-        class_total[label] += 1
-        class_correct[label] += (targets[i] == preds[i]).item()
-    return (class_correct / (class_total + 1e-8)).mean().item()
+class MeanPerClassAccuracy:
+    """A metric: classification accuracy averaged over all classes"""
+
+    def __init__(self):
+        self.best: float = -float("inf")
+        self.min_increase = 1e-3
+
+    def __call__(self, preds: torch.Tensor, targets: torch.Tensor) -> float:
+        preds = preds.argmax(dim=1)
+        class_total = torch.zeros(targets.max() + 1)
+        class_correct = torch.zeros(targets.max() + 1)
+        for i, label in enumerate(targets):
+            class_total[label] += 1
+            class_correct[label] += (targets[i] == preds[i]).item()
+        # +1e-8 for numerical stability in case if class_total == 0
+        return (class_correct / (class_total + 1e-8)).mean().item()
+
+    def set_new_best(self, new_best: float) -> bool:
+        """Check if a new metric's value is better than the stored one and return
+        True if the stored value was updated."""
+        if new_best > self.best + self.min_increase:
+            self.best = new_best
+            return True
+        else:
+            return False
 
 
 def measure_forward_backward_time(
@@ -32,25 +48,7 @@ def measure_forward_backward_time(
     out_features: int = None,
     device: torch.device = torch.device("cpu"),
 ):
-    """
-    Measures the average time for forward and backward passes of a given model.
-
-    Args:
-        model_cls:
-            The class of the model to benchmark. The model should accept
-            `in_features` and `out_features` as positional arguments.
-        nruns:
-            The number of runs to average the timing over.
-        batch_size:
-            The batch size of the input data.
-        in_features:
-            The number of input features for the model.
-        out_features:
-            The number of output features for the model.
-        warmup:
-            The number of warmup iterations to perform before timing. Default is 50.
-        device:
-            The device to run the model on ("cpu" or "cuda"). Default is "cpu".
+    """Measures the average time for forward and backward passes of a given model.
 
     Returns:
         tuple:
@@ -107,76 +105,39 @@ def measure_forward_backward_time(
 
 def train_offline(
     model: torch.nn.Module,
-    save_path: str,
     trainloader: torch.utils.data.DataLoader,
     testloader: torch.utils.data.DataLoader,
     criterion: torch.nn.Module,
-    metric: callable,
+    metrics: list,
     optimizer: torch.optim.Optimizer,
+    save_path: str,
     num_epochs: int = 100,
     early_stopping: int = 10,
-    metric_delta: float = 0.001,
-    metric_mode: str = "max",
     device: torch.device = torch.device("cpu"),
 ) -> None:
     """Train a model on all classes and plot losses and metric at
     each epoch.
-
-    Args:
-        model:
-            Neural network module to train
-        save_path:
-            Filename/path for saving best model weights
-        trainloader:
-            Training data loader (batch generator)
-        testloader:
-            Validation/test data loader
-        criterion:
-            Loss function module
-        metric:
-            Evaluation metric callable (e.g., accuracy function)
-        optimizer:
-            Parameter optimizer instance
-        num_epochs:
-            Maximum training epochs
-        early_stopping:
-            Early stopping patience (epochs without improvement)
-        metric_delta:
-            Minimum improvement threshold for metric
-        metric_mode:
-            Optimization direction - 'max' or 'min'
-        device:
-            Compute device ('cpu' or 'cuda')
     """
     model.to(device)
-    train_loss_history = []
-    test_loss_history = []
-    test_metric_history = []
-    best_metric = -float("inf") if metric_mode == "max" else float("inf")
+    train_loss_history, test_loss_history, test_metric_history = [], [], []
     best_model_weights = None
     early_stopping_patience = early_stopping
-
     for epoch_idx in range(num_epochs):
-        train_epoch_loss = _train_loop(model, criterion, optimizer, trainloader, device)
-        train_loss_history.append(train_epoch_loss)
-        test_epoch_loss, epoch_preds, epoch_targets = _test_loop(
-            model, criterion, testloader, device
+        epoch_logs = epoch_loop(
+            model, criterion, optimizer, trainloader, testloader, device
         )
-        test_loss_history.append(test_epoch_loss)
-        test_epoch_metric = metric(
-            torch.cat(epoch_preds, dim=0), torch.cat(epoch_targets, dim=0)
+        train_loss_history.append(epoch_logs["train_loss"])
+        test_loss_history.append(epoch_logs["test_loss"])
+        test_metric_history.append(
+            metrics[0](torch.cat(epoch_logs["preds"]), torch.cat(epoch_logs["targets"]))
         )
-        test_metric_history.append(test_epoch_metric)
         plot_training_progress(
             train_loss_history,
             test_loss_history,
             test_metric_history,
             title=f"Training progress of the {save_path} over epochs",
         )
-        if (
-            metric_mode == "max" and test_epoch_metric > best_metric + metric_delta
-        ) or (metric_mode == "min" and test_epoch_metric < best_metric - metric_delta):
-            best_metric = test_epoch_metric
+        if metrics[0].set_new_best(test_metric_history[-1]):
             best_model_weights = copy.deepcopy(model.state_dict())
             early_stopping_patience = early_stopping
         else:
@@ -184,10 +145,46 @@ def train_offline(
         if early_stopping_patience == 0:
             print(f"Early stopping is triggered at the epoch {epoch_idx}.")
             break
-    torch.save(best_model_weights, os.path.join(MODELS_DIR, save_path))
-    print(f"Best metric's value: {best_metric:.5f}.")
+    print(f"Best metric's value: {metrics[0].best:.5f}.")
     print(f"The model's weights are saved to {os.path.join(MODELS_DIR, save_path)}")
+    torch.save(best_model_weights, os.path.join(MODELS_DIR, save_path))
     model.load_state_dict(best_model_weights)
+
+
+def epoch_loop(
+    model: torch.nn.Module,
+    criterion: torch.nn.Module,
+    optimizer: torch.optim.Optimizer,
+    trainloader: torch.utils.data.DataLoader = None,
+    testloader: torch.utils.data.DataLoader = None,
+    device: torch.device = torch.device("cpu"),
+    train: bool = True,
+    test: bool = True,
+) -> dict:
+    """Perform one epoch, optionally including the training phase and/or the
+    testing phase. Return (if available) loss, predictions and targets for metrics
+    evaluation.
+
+    Returns:
+        logs: a dictionary with data collected during the epoch. Following
+            keys are available:
+            train_loss: float = model's loss collected during the training stage;
+            test_loss: float = model's loss collected during the test stage;
+            preds: torch.Tensor = 1-D tensor with model's prediction on the test
+                dataset;
+            targets: torch.Tensor = 1-D tensor with true labels of the test
+                dataset;
+    """
+    logs = {}
+    if train:
+        logs["train_loss"] = _train_loop(
+            model, criterion, optimizer, trainloader, device
+        )
+    if test:
+        logs["test_loss"], logs["preds"], logs["targets"] = _test_loop(
+            model, criterion, testloader, device
+        )
+    return logs
 
 
 def _train_loop(
@@ -196,7 +193,8 @@ def _train_loop(
     optimizer: torch.optim.Optimizer,
     dataloader: torch.utils.data.DataLoader,
     device: torch.device,
-):
+) -> float:
+    """Optimize model on a train dataset and return loss averaged over batches"""
     model.train()
     epoch_loss = 0
     for batch_inputs, batch_targets in dataloader:
@@ -216,7 +214,8 @@ def _test_loop(
     criterion: torch.nn.Module,
     dataloader: torch.utils.data.DataLoader,
     device: torch.device,
-):
+) -> tuple[float, list[torch.Tensor], list[torch.Tensor]]:
+    """Get model's predictions on a test dataset and report logs"""
     model.eval()
     epoch_loss = 0
     preds = []
