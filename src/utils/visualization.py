@@ -7,7 +7,7 @@ from IPython.display import clear_output
 def plot_training_progress(
     train_loss_history: list[float],
     test_loss_history: list[float],
-    test_metric_history: list[float],
+    test_metrics_history: list[list[float]],
     title: str = "Train, test losses and metric values over epochs",
 ) -> None:
     """Visualizes training progress by plotting loss curves and metrics in real-time
@@ -23,7 +23,10 @@ def plot_training_progress(
     # Main axis for the train, test losses
     ax1 = plt.gca()
     ax1.plot(
-        train_loss_history, label="Training loss", color="tab:blue", linestyle="--"
+        train_loss_history,
+        label="Training loss",
+        color="tab:blue",
+        linestyle="--",
     )
     ax1.plot(test_loss_history, color="tab:blue", label="Test loss")
     ax1.set_xlabel("Epoch")
@@ -40,12 +43,17 @@ def plot_training_progress(
     ax1.grid(True, axis="x", color="black", linestyle="-", alpha=0.3)
     # Secondary axis (on the right side) for test metric
     ax2 = ax1.twinx()
-    ax2.plot(test_metric_history, color="tab:green", label="Test metric")
-    ax2.set_ylabel("Metric")
+    for metric_idx, metric_history in enumerate(test_metrics_history):
+        ax2.plot(
+            metric_history,
+            color=(0, (metric_idx + 1) / (len(test_metrics_history)), 0),
+            label=f"Test metric #{metric_idx}",
+        )
+    ax2.set_ylabel("Metrics")
     ax2.tick_params(axis="y", labelcolor="tab:green")
     # Combine legends of the left and right axes
     lines1, labels1 = ax1.get_legend_handles_labels()
     lines2, labels2 = ax2.get_legend_handles_labels()
-    ax1.legend(lines1 + lines2, labels1 + labels2, loc="upper left")
+    ax1.legend(lines1 + lines2, labels1 + labels2, loc="lower right")
     plt.title(title)
     plt.show()

@@ -116,10 +116,11 @@ def train_offline(
     device: torch.device = torch.device("cpu"),
 ) -> None:
     """Train a model on all classes and plot losses and metric at
-    each epoch.
+    each epoch. The first metric in the metrics list is used for early stopping.
     """
     model.to(device)
-    train_loss_history, test_loss_history, test_metric_history = [], [], []
+    train_loss_history, test_loss_history = [], []
+    test_metrics_history = [list() for metric in metrics]
     best_model_weights = None
     early_stopping_patience = early_stopping
     for epoch_idx in range(num_epochs):
@@ -128,16 +129,17 @@ def train_offline(
         )
         train_loss_history.append(epoch_logs["train_loss"])
         test_loss_history.append(epoch_logs["test_loss"])
-        test_metric_history.append(
-            metrics[0](torch.cat(epoch_logs["preds"]), torch.cat(epoch_logs["targets"]))
-        )
+        for metric_idx, metric in enumerate(metrics):
+            test_metrics_history[metric_idx].append(
+                metric(torch.cat(epoch_logs["preds"]), torch.cat(epoch_logs["targets"]))
+            )
         plot_training_progress(
             train_loss_history,
             test_loss_history,
-            test_metric_history,
+            test_metrics_history,
             title=f"Training progress of the {save_path} over epochs",
         )
-        if metrics[0].set_new_best(test_metric_history[-1]):
+        if metrics[0].set_new_best(test_metrics_history[0][-1]):
             best_model_weights = copy.deepcopy(model.state_dict())
             early_stopping_patience = early_stopping
         else:
