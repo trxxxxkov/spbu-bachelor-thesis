@@ -40,14 +40,7 @@ class MeanPerClassAccuracy(CustomMetric):
     """A metric: classification accuracy averaged over all classes"""
 
     def __call__(self, preds: torch.Tensor, targets: torch.Tensor) -> float:
-        preds = preds.argmax(dim=1)
-        class_total = torch.zeros(targets.max() + 1)
-        class_correct = torch.zeros(targets.max() + 1)
-        for i, label in enumerate(targets):
-            class_total[label] += 1
-            class_correct[label] += (targets[i] == preds[i]).item()
-        # +1e-8 for numerical stability in case if class_total == 0
-        return (class_correct / (class_total + 1e-8)).mean().item()
+        return _mpc_accuracy_with_filter(preds, targets)
 
 
 class OmegaBase(CustomMetric):
@@ -66,11 +59,14 @@ class OmegaBase(CustomMetric):
     def __init__(self, study_sessions: tuple[torch.Tensor], baseline_name: str):
         super().__init__()
         self.study_sessions = study_sessions
-        self.curr_session_idx = 0
-        self.ideal = _get_baseline_accuracy(baseline_name)
+        self.i = 1
+        self.a_base = 0
+        self.a_ideal = _get_baseline_accuracy(baseline_name)
 
     def __call__(self, preds: torch.Tensor, targets: torch.Tensor) -> float:
-        pass
+        self.i += 1
+        self.a_base += _mpc_accuracy_with_filter(preds, targets, self.study_sessions[0])
+        return self.a_base / (self.a_ideal * (self.i - 1))
 
 
 class OmegaNew:
@@ -86,10 +82,15 @@ class OmegaNew:
     def __init__(self, study_sessions: tuple[torch.Tensor]):
         super().__init__()
         self.study_sessions = study_sessions
-        self.curr_session_idx = 0
+        self.i = 1
+        self.a_new = 0
 
     def __call__(self, preds: torch.Tensor, targets: torch.Tensor) -> float:
-        pass
+        self.i += 1
+        self.a_new += _mpc_accuracy_with_filter(
+            preds, targets, self.study_sessions[self.i - 1]
+        )
+        return self.a_new / (self.i - 1)
 
 
 class OmegaAll:
@@ -108,11 +109,16 @@ class OmegaAll:
     def __init__(self, study_sessions: tuple[torch.Tensor], baseline_name: str):
         super().__init__()
         self.study_sessions = study_sessions
-        self.curr_session_idx = 0
-        self.ideal = _get_baseline_accuracy(baseline_name)
+        self.i = 1
+        self.a_all = 0
+        self.a_ideal = _get_baseline_accuracy(baseline_name)
 
     def __call__(self, preds: torch.Tensor, targets: torch.Tensor) -> float:
-        pass
+        self.i += 1
+        self.a_all += _mpc_accuracy_with_filter(
+            preds, targets, self.study_sessions[: self.i]
+        )
+        return self.a_all / (self.a_ideal * (self.i - 1))
 
 
 def measure_forward_backward_time(
@@ -346,3 +352,20 @@ def _get_baseline_accuracy(baseline_name: str, dataset_name="cub200_test_embed.p
     _, preds, targets = _test_loop(model, testloader)
     metric = MeanPerClassAccuracy()
     return metric(torch.cat(preds), torch.cat(targets))
+
+
+def _mpc_accuracy_with_filter(
+    preds: torch.Tensor, targets: torch.Tensor, valid_labels: torch.Tensor = None
+) -> float:
+    """Compute mean per class accuracy metric, but only considering labels from valid_labels"""
+    preds = preds.argmax(dim=1)
+    class_total = torch.zeros(targets.max() + 1)
+    class_correct = torch.zeros(targets.max() + 1)
+    for i, label in enumerate(targets):
+        if label in valid_labels or valid_labels is None:
+            class_total[label] += 1
+            class_correct[label] += (targets[i] == preds[i]).item()
+        # +1e-8 for numerical stability in case if class_total == 0
+    if valid_labels is None:
+        return (class_correct / (class_total + 1e-8)).mean().item()
+    return (class_correct / (class_total + 1e-8)).sum().item() / len(valid_labels)
