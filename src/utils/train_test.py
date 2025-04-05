@@ -12,7 +12,7 @@ from tqdm import tqdm
 
 from src.utils.global_constants import MODELS_DIR
 from src.utils.visualization import plot_training_progress
-from src.utils.datasets import EmbeddingDataset
+from src.utils.datasets import EmbeddingDataset, ClassSpecificSampler
 from src.nn_modules.kan import BaselineKAN
 from src.nn_modules.mlp import BaselineMLP
 
@@ -35,12 +35,21 @@ class CustomMetric:
             return True
         return False
 
+    def reset(self) -> None:
+        """Set attributes to initial value"""
+        self.best = (-1 if self.to_be_maximized else 1) * float("inf")
+
 
 class MeanPerClassAccuracy(CustomMetric):
-    """A metric: classification accuracy averaged over all classes"""
+    """A metric: classification accuracy averaged over selected classes"""
 
-    def __call__(self, preds: torch.Tensor, targets: torch.Tensor) -> float:
-        return _mpc_accuracy_with_filter(preds, targets)
+    def __call__(
+        self,
+        preds: torch.Tensor,
+        targets: torch.Tensor,
+        allowed_labels: torch.Tensor = None,
+    ) -> float:
+        return _mpc_accuracy_with_filter(preds, targets, allowed_labels)
 
 
 class OmegaBase(CustomMetric):
@@ -68,8 +77,14 @@ class OmegaBase(CustomMetric):
         self.a_base += _mpc_accuracy_with_filter(preds, targets, self.study_sessions[0])
         return self.a_base / (self.a_ideal * (self.i - 1))
 
+    def reset(self) -> None:
+        """Set attributes to initial value"""
+        self.best = (-1 if self.to_be_maximized else 1) * float("inf")
+        self.i = 1
+        self.a_base = 0
 
-class OmegaNew:
+
+class OmegaNew(CustomMetric):
     """A metric: measures the model's ability to immediately recall new tasks.
 
         Omega_new = 1/(T-1) * sum_{i=2}^T (a_{new,i}),
@@ -92,8 +107,14 @@ class OmegaNew:
         )
         return self.a_new / (self.i - 1)
 
+    def reset(self) -> None:
+        """Set attributes to initial values"""
+        self.best = (-1 if self.to_be_maximized else 1) * float("inf")
+        self.i = 1
+        self.a_new = 0
 
-class OmegaAll:
+
+class OmegaAll(CustomMetric):
     """A metric: Measures how well a model both retains prior knowledge and
     acquires new information.
 
@@ -116,9 +137,15 @@ class OmegaAll:
     def __call__(self, preds: torch.Tensor, targets: torch.Tensor) -> float:
         self.i += 1
         self.a_all += _mpc_accuracy_with_filter(
-            preds, targets, self.study_sessions[: self.i]
+            preds, targets, torch.cat(self.study_sessions[: self.i])
         )
         return self.a_all / (self.a_ideal * (self.i - 1))
+
+    def reset(self) -> None:
+        """Set attributes to initial value"""
+        self.best = (-1 if self.to_be_maximized else 1) * float("inf")
+        self.i = 1
+        self.a_all = 0
 
 
 def measure_forward_backward_time(
@@ -189,7 +216,7 @@ def train_offline(
     trainloader: torch.utils.data.DataLoader,
     testloader: torch.utils.data.DataLoader,
     criterion: torch.nn.Module,
-    metrics: list,
+    metrics: list[CustomMetric],
     optimizer: torch.optim.Optimizer,
     save_path: str,
     num_epochs: int = 100,
@@ -205,7 +232,7 @@ def train_offline(
     best_model_weights = None
     early_stopping_patience = early_stopping
     for epoch_idx in range(num_epochs):
-        epoch_logs = epoch_loop(
+        epoch_logs = _epoch_loop(
             model, criterion, optimizer, trainloader, testloader, device
         )
         train_loss_history.append(epoch_logs["train_loss"])
@@ -234,40 +261,92 @@ def train_offline(
     model.load_state_dict(best_model_weights)
 
 
-def epoch_loop(
+def train_class_incremental(
     model: torch.nn.Module,
+    trainset: torch.utils.data.Dataset,
+    testset: torch.utils.data.Dataset,
+    study_sessions: tuple[torch.Tensor],
     criterion: torch.nn.Module,
+    metrics: list[CustomMetric],
     optimizer: torch.optim.Optimizer,
-    trainloader: torch.utils.data.DataLoader = None,
-    testloader: torch.utils.data.DataLoader = None,
+    save_path: str,
+    batch_size: int = 128,
+    num_epochs: int = 100,
+    early_stopping: int = 10,
     device: torch.device = torch.device("cpu"),
-    train: bool = True,
-    test: bool = True,
-) -> dict:
-    """Perform one epoch, optionally including the training phase and/or the
-    testing phase. Return (if available) loss, predictions and targets for metrics
-    evaluation.
-
-    Returns:
-        logs: a dictionary with data collected during the epoch. Following
-            keys are available:
-            train_loss: float = model's loss collected during the training stage;
-            test_loss: float = model's loss collected during the test stage;
-            preds: torch.Tensor = 1-D tensor with model's prediction on the test
-                dataset;
-            targets: torch.Tensor = 1-D tensor with true labels of the test
-                dataset;
-    """
-    logs = {}
-    if train:
-        logs["train_loss"] = _train_loop(
-            model, trainloader, criterion, optimizer, device
+):
+    """Train a model, adding several new classes at each session."""
+    model.to(device)
+    train_loss_history, test_loss_history = [], []
+    test_metrics_history = [list() for metric in metrics]
+    best_model_weights = None
+    base_train_sampler = ClassSpecificSampler(trainset, study_sessions[0])
+    base_test_sampler = ClassSpecificSampler(testset, study_sessions[0])
+    trainloader = DataLoader(
+        trainset, batch_size=batch_size, num_workers=2, sampler=base_train_sampler
+    )
+    testloader = DataLoader(
+        testset, batch_size=batch_size, num_workers=2, sampler=base_test_sampler
+    )
+    _train(
+        model,
+        trainloader,
+        testloader,
+        criterion,
+        optimizer,
+        allowed_labels=study_sessions[0],
+    )
+    for session_idx, study_session in enumerate(study_sessions[1:]):
+        curr_session_sampler = ClassSpecificSampler(trainset, study_session)
+        seen_sessions_sampler = ClassSpecificSampler(
+            testset, torch.cat(study_sessions[: session_idx + 2])
         )
-    if test:
-        logs["test_loss"], logs["preds"], logs["targets"] = _test_loop(
-            model, testloader, criterion, device
+        trainloader = DataLoader(
+            trainset, batch_size=batch_size, num_workers=2, sampler=curr_session_sampler
         )
-    return logs
+        testloader = DataLoader(
+            testset, batch_size=batch_size, sampler=seen_sessions_sampler
+        )
+        early_stopping_patience = early_stopping
+        mpc = MeanPerClassAccuracy()
+        for _ in range(num_epochs):
+            epoch_logs = _epoch_loop(
+                model, criterion, optimizer, trainloader, testloader, device
+            )
+            curr_metric = mpc(
+                torch.cat(epoch_logs["preds"]),
+                torch.cat(epoch_logs["targets"]),
+                study_sessions[session_idx + 1],
+            )
+            if mpc.set_new_best(curr_metric):
+                early_stopping_patience = early_stopping
+                best_model_weights = copy.deepcopy(model.state_dict())
+            elif curr_metric == 0:
+                early_stopping_patience = early_stopping
+            else:
+                early_stopping_patience -= 1
+            if early_stopping_patience == 0:
+                break
+        session_logs = _epoch_loop(
+            model, criterion, optimizer, trainloader, testloader, device
+        )
+        train_loss_history.append(session_logs["train_loss"])
+        test_loss_history.append(session_logs["test_loss"])
+        for metric_idx, metric in enumerate(metrics):
+            test_metrics_history[metric_idx].append(
+                metric(
+                    torch.cat(session_logs["preds"]),
+                    torch.cat(session_logs["targets"]),
+                )
+            )
+        plot_training_progress(
+            train_loss_history,
+            test_loss_history,
+            test_metrics_history,
+            title=f"Training progress of the {save_path} over sessions",
+        )
+    print(f"The model's weights are saved to {os.path.join(MODELS_DIR, save_path)}")
+    torch.save(best_model_weights, os.path.join(MODELS_DIR, save_path))
 
 
 def get_study_sessions(
@@ -290,6 +369,68 @@ def get_study_sessions(
     init_labels = shuffled_labels[:base_size]
     shuffled_labels = torch.split(shuffled_labels[base_size:], session_size)
     return (init_labels,) + shuffled_labels
+
+
+def _train(
+    model: torch.nn.Module,
+    trainloader: torch.utils.data.DataLoader,
+    testloader: torch.utils.data.DataLoader,
+    criterion: torch.nn.Module,
+    optimizer: torch.optim.Optimizer,
+    metric: CustomMetric = MeanPerClassAccuracy(),
+    num_epochs: int = 100,
+    early_stopping: int = 5,
+    allowed_labels: torch.Tensor = None,
+    device: torch.device = torch.device("cpu"),
+) -> None:
+    """Train model until metric's impovement stops"""
+    model.to(device)
+    best_model_weights = None
+    early_stopping_patience = early_stopping
+    for _ in range(num_epochs):
+        epoch_logs = _epoch_loop(
+            model, criterion, optimizer, trainloader, testloader, device
+        )
+        curr_metric = metric(
+            torch.cat(epoch_logs["preds"]),
+            torch.cat(epoch_logs["targets"]),
+            allowed_labels,
+        )
+        if metric.set_new_best(curr_metric):
+            early_stopping_patience = early_stopping
+            best_model_weights = copy.deepcopy(model.state_dict())
+        elif curr_metric == 0:
+            early_stopping_patience = early_stopping
+        else:
+            early_stopping_patience -= 1
+        if early_stopping_patience == 0:
+            break
+    model.load_state_dict(best_model_weights)
+
+
+def _epoch_loop(
+    model: torch.nn.Module,
+    criterion: torch.nn.Module,
+    optimizer: torch.optim.Optimizer,
+    trainloader: torch.utils.data.DataLoader = None,
+    testloader: torch.utils.data.DataLoader = None,
+    device: torch.device = torch.device("cpu"),
+    train: bool = True,
+    test: bool = True,
+) -> dict:
+    """Perform one epoch, optionally including the training phase and/or the
+    testing phase. Return (if available) loss, predictions and targets for metrics
+    evaluation."""
+    logs = {}
+    if train:
+        logs["train_loss"] = _train_loop(
+            model, trainloader, criterion, optimizer, device
+        )
+    if test:
+        logs["test_loss"], logs["preds"], logs["targets"] = _test_loop(
+            model, testloader, criterion, device
+        )
+    return logs
 
 
 def _train_loop(
@@ -345,7 +486,7 @@ def _get_baseline_accuracy(baseline_name: str, dataset_name="cub200_test_embed.p
         model = BaselineKAN()
     else:
         model = BaselineMLP()
-    state_dict = torch.load(os.path.join(MODELS_DIR, f"baseline_{baseline_name}.pth"))
+    state_dict = torch.load(os.path.join(MODELS_DIR, f"offline_{baseline_name}.pth"))
     model.load_state_dict(state_dict)
     testset = EmbeddingDataset(dataset_name)
     testloader = DataLoader(testset, batch_size=128, num_workers=2)
@@ -355,17 +496,17 @@ def _get_baseline_accuracy(baseline_name: str, dataset_name="cub200_test_embed.p
 
 
 def _mpc_accuracy_with_filter(
-    preds: torch.Tensor, targets: torch.Tensor, valid_labels: torch.Tensor = None
+    preds: torch.Tensor, targets: torch.Tensor, allowed_labels: torch.Tensor = None
 ) -> float:
-    """Compute mean per class accuracy metric, but only considering labels from valid_labels"""
+    """Compute mean per class accuracy metric, but only considering labels from allowed_labels"""
     preds = preds.argmax(dim=1)
     class_total = torch.zeros(targets.max() + 1)
     class_correct = torch.zeros(targets.max() + 1)
     for i, label in enumerate(targets):
-        if label in valid_labels or valid_labels is None:
+        if allowed_labels is None or label in allowed_labels:
             class_total[label] += 1
             class_correct[label] += (targets[i] == preds[i]).item()
         # +1e-8 for numerical stability in case if class_total == 0
-    if valid_labels is None:
+    if allowed_labels is None:
         return (class_correct / (class_total + 1e-8)).mean().item()
-    return (class_correct / (class_total + 1e-8)).sum().item() / len(valid_labels)
+    return (class_correct / (class_total + 1e-8)).sum().item() / len(allowed_labels)

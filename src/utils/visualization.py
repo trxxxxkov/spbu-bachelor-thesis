@@ -54,6 +54,6 @@ def plot_training_progress(
     # Combine legends of the left and right axes
     lines1, labels1 = ax1.get_legend_handles_labels()
     lines2, labels2 = ax2.get_legend_handles_labels()
-    ax1.legend(lines1 + lines2, labels1 + labels2, loc="lower right")
+    ax1.legend(lines1 + lines2, labels1 + labels2)
     plt.title(title)
     plt.show()
