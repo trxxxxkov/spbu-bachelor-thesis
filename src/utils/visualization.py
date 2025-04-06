@@ -5,9 +5,7 @@ from IPython.display import clear_output
 
 
 def plot_training_progress(
-    train_loss_history: list[float],
-    test_loss_history: list[float],
-    test_metrics_history: list[list[float]],
+    logs: list[dict],
     title: str = "Train, test losses and metric values over epochs",
 ) -> None:
     """Visualizes training progress by plotting loss curves and metrics in real-time
@@ -23,19 +21,21 @@ def plot_training_progress(
     # Main axis for the train, test losses
     ax1 = plt.gca()
     ax1.plot(
-        train_loss_history,
+        [epoch["train_loss"] for epoch in logs],
         label="Training loss",
         color="tab:blue",
         linestyle="--",
     )
-    ax1.plot(test_loss_history, color="tab:blue", label="Test loss")
+    ax1.plot(
+        [epoch["test_loss"] for epoch in logs], color="tab:blue", label="Test loss"
+    )
     ax1.set_xlabel("Epoch")
     ax1.set_ylabel("Loss")
     ax1.tick_params(axis="y", labelcolor="tab:blue")
     # Force integer ticks for all epochs
-    ax1.set_xticks(range(len(train_loss_history)))
+    ax1.set_xticks(range(len(logs)))
     ax1.set_xticklabels(
-        range(len(train_loss_history)),
+        range(len(logs)),
         rotation=60,
         fontsize=9,
         ha="center",
@@ -43,11 +43,11 @@ def plot_training_progress(
     ax1.grid(True, axis="x", color="black", linestyle="-", alpha=0.3)
     # Secondary axis (on the right side) for test metric
     ax2 = ax1.twinx()
-    for metric_idx, metric_history in enumerate(test_metrics_history):
+    for i in range(len(logs[-1]["metrics"])):
         ax2.plot(
-            metric_history,
-            color=(0, (metric_idx + 1) / (len(test_metrics_history)), 0),
-            label=f"Test metric #{metric_idx}",
+            [epoch["metrics"][i] for epoch in logs],
+            color=(0, (i + 1) / (len(logs[-1]["metrics"])), 0),
+            label=f"Test metric #{i}",
         )
     ax2.set_ylabel("Metrics")
     ax2.tick_params(axis="y", labelcolor="tab:green")

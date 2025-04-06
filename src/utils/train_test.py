@@ -68,19 +68,29 @@ class OmegaBase(CustomMetric):
     def __init__(self, study_sessions: tuple[torch.Tensor], baseline_name: str):
         super().__init__()
         self.study_sessions = study_sessions
-        self.i = 1
+        self.i = 0
         self.a_base = 0
         self.a_ideal = _get_baseline_accuracy(baseline_name)
 
     def __call__(self, preds: torch.Tensor, targets: torch.Tensor) -> float:
         self.i += 1
-        self.a_base += _mpc_accuracy_with_filter(preds, targets, self.study_sessions[0])
-        return self.a_base / (self.a_ideal * (self.i - 1))
+        # Treat metric evaluation on a base set separately, because it shouldn't
+        # be included in the total number of studied sessions.
+        if self.i == 1:
+            return (
+                _mpc_accuracy_with_filter(preds, targets, self.study_sessions[0])
+                / self.a_ideal
+            )
+        else:
+            self.a_base += _mpc_accuracy_with_filter(
+                preds, targets, self.study_sessions[0]
+            )
+            return self.a_base / (self.a_ideal * (self.i - 1))
 
     def reset(self) -> None:
         """Set attributes to initial value"""
         self.best = (-1 if self.to_be_maximized else 1) * float("inf")
-        self.i = 1
+        self.i = 0
         self.a_base = 0
 
 
@@ -97,20 +107,25 @@ class OmegaNew(CustomMetric):
     def __init__(self, study_sessions: tuple[torch.Tensor]):
         super().__init__()
         self.study_sessions = study_sessions
-        self.i = 1
+        self.i = 0
         self.a_new = 0
 
     def __call__(self, preds: torch.Tensor, targets: torch.Tensor) -> float:
         self.i += 1
-        self.a_new += _mpc_accuracy_with_filter(
-            preds, targets, self.study_sessions[self.i - 1]
-        )
-        return self.a_new / (self.i - 1)
+        # Treat metric evaluation on a base set separately, because it shouldn't
+        # be included in the total number of studied sessions.
+        if self.i == 1:
+            return _mpc_accuracy_with_filter(preds, targets, self.study_sessions[0])
+        else:
+            self.a_new += _mpc_accuracy_with_filter(
+                preds, targets, self.study_sessions[self.i - 1]
+            )
+            return self.a_new / (self.i - 1)
 
     def reset(self) -> None:
         """Set attributes to initial values"""
         self.best = (-1 if self.to_be_maximized else 1) * float("inf")
-        self.i = 1
+        self.i = 0
         self.a_new = 0
 
 
@@ -130,21 +145,29 @@ class OmegaAll(CustomMetric):
     def __init__(self, study_sessions: tuple[torch.Tensor], baseline_name: str):
         super().__init__()
         self.study_sessions = study_sessions
-        self.i = 1
+        self.i = 0
         self.a_all = 0
         self.a_ideal = _get_baseline_accuracy(baseline_name)
 
     def __call__(self, preds: torch.Tensor, targets: torch.Tensor) -> float:
         self.i += 1
-        self.a_all += _mpc_accuracy_with_filter(
-            preds, targets, torch.cat(self.study_sessions[: self.i])
-        )
-        return self.a_all / (self.a_ideal * (self.i - 1))
+        # Treat metric evaluation on a base set separately, because it shouldn't
+        # be included in the total number of studied sessions.
+        if self.i == 1:
+            return (
+                _mpc_accuracy_with_filter(preds, targets, self.study_sessions[0])
+                / self.a_ideal
+            )
+        else:
+            self.a_all += _mpc_accuracy_with_filter(
+                preds, targets, torch.cat(self.study_sessions[: self.i])
+            )
+            return self.a_all / (self.a_ideal * (self.i - 1))
 
     def reset(self) -> None:
         """Set attributes to initial value"""
         self.best = (-1 if self.to_be_maximized else 1) * float("inf")
-        self.i = 1
+        self.i = 0
         self.a_all = 0
 
 
@@ -227,27 +250,22 @@ def train_offline(
     each epoch. The first metric in the metrics list is used for early stopping.
     """
     model.to(device)
-    train_loss_history, test_loss_history = [], []
-    test_metrics_history = [list() for metric in metrics]
+    logs = []
     best_model_weights = None
     early_stopping_patience = early_stopping
     for epoch_idx in range(num_epochs):
-        epoch_logs = _epoch_loop(
-            model, criterion, optimizer, trainloader, testloader, device
+        logs.append(
+            _epoch_loop(model, criterion, optimizer, trainloader, testloader, device)
         )
-        train_loss_history.append(epoch_logs["train_loss"])
-        test_loss_history.append(epoch_logs["test_loss"])
+        logs[-1]["metrics"] = [0 for _ in range(len(metrics))]
         for metric_idx, metric in enumerate(metrics):
-            test_metrics_history[metric_idx].append(
-                metric(torch.cat(epoch_logs["preds"]), torch.cat(epoch_logs["targets"]))
+            logs[-1]["metrics"][metric_idx] = metric(
+                torch.cat(logs[-1]["preds"]), torch.cat(logs[-1]["targets"])
             )
         plot_training_progress(
-            train_loss_history,
-            test_loss_history,
-            test_metrics_history,
-            title=f"Training progress of the {save_path} over epochs",
+            logs, title=f"Training progress of the {save_path} over epochs"
         )
-        if metrics[0].set_new_best(test_metrics_history[0][-1]):
+        if metrics[0].set_new_best(logs[-1]["metrics"][0]):
             best_model_weights = copy.deepcopy(model.state_dict())
             early_stopping_patience = early_stopping
         else:
@@ -274,25 +292,19 @@ def train_class_incremental(
     num_epochs: int = 100,
     early_stopping: int = 10,
     device: torch.device = torch.device("cpu"),
-):
-    """Train a model, adding several new classes at each session."""
+) -> None:
+    """Train a model in a class incremental learning settings.
+
+    Divide the dataset into sessions (sets of labels to be studied at each step)
+    and train model using samples with labels from this session only. During each
+    study session, num_epochs is performed with early stopping and loss and metrics
+    from the last epoch are used to create a plot."""
     model.to(device)
-    train_loss_history, test_loss_history = [], []
-    test_metrics_history = [list() for metric in metrics]
-    base_train = ClassSpecificSampler(trainset, study_sessions[0])
-    base_test = ClassSpecificSampler(testset, study_sessions[0])
-    _ = _train(
-        model,
-        DataLoader(trainset, batch_size=batch_size, num_workers=2, sampler=base_train),
-        DataLoader(testset, batch_size=batch_size, num_workers=2, sampler=base_test),
-        criterion,
-        optimizer,
-        allowed_labels=study_sessions[0],
-    )
-    for session_idx, study_session in enumerate(study_sessions[1:]):
+    logs = []
+    for session_idx, study_session in enumerate(study_sessions):
         curr = ClassSpecificSampler(trainset, study_session)
         prev = ClassSpecificSampler(
-            testset, torch.cat(study_sessions[: session_idx + 2])
+            testset, torch.cat(study_sessions[: session_idx + 1])
         )
         session_logs = _train(
             model,
@@ -302,23 +314,17 @@ def train_class_incremental(
             optimizer,
             num_epochs,
             early_stopping,
-            study_sessions[session_idx + 1],
+            study_sessions[session_idx],
             device=device,
         )
-        train_loss_history.append(session_logs[-1]["train_loss"])
-        test_loss_history.append(session_logs[-1]["test_loss"])
+        logs.append(session_logs[-1])
+        logs[-1]["metrics"] = [0 for _ in range(len(metrics))]
         for metric_idx, metric in enumerate(metrics):
-            test_metrics_history[metric_idx].append(
-                metric(
-                    torch.cat(session_logs[-1]["preds"]),
-                    torch.cat(session_logs[-1]["targets"]),
-                )
+            logs[-1]["metrics"][metric_idx] = metric(
+                torch.cat(logs[-1]["preds"]), torch.cat(logs[-1]["targets"])
             )
         plot_training_progress(
-            train_loss_history,
-            test_loss_history,
-            test_metrics_history,
-            title=f"Training progress of the {save_path} over sessions",
+            logs, title=f"Training progress of the {save_path} over sessions"
         )
     print(f"The model's weights are saved to {os.path.join(MODELS_DIR, save_path)}")
     torch.save(model.state_dict(), os.path.join(MODELS_DIR, save_path))
