@@ -270,7 +270,7 @@ def train_class_incremental(
     metrics: list[CustomMetric],
     optimizer: torch.optim.Optimizer,
     save_path: str,
-    batch_size: int = 128,
+    batch_size: int = 256,
     num_epochs: int = 100,
     early_stopping: int = 10,
     device: torch.device = torch.device("cpu"),
@@ -279,64 +279,39 @@ def train_class_incremental(
     model.to(device)
     train_loss_history, test_loss_history = [], []
     test_metrics_history = [list() for metric in metrics]
-    best_model_weights = None
-    base_train_sampler = ClassSpecificSampler(trainset, study_sessions[0])
-    base_test_sampler = ClassSpecificSampler(testset, study_sessions[0])
-    trainloader = DataLoader(
-        trainset, batch_size=batch_size, num_workers=2, sampler=base_train_sampler
-    )
-    testloader = DataLoader(
-        testset, batch_size=batch_size, num_workers=2, sampler=base_test_sampler
-    )
-    _train(
+    base_train = ClassSpecificSampler(trainset, study_sessions[0])
+    base_test = ClassSpecificSampler(testset, study_sessions[0])
+    _ = _train(
         model,
-        trainloader,
-        testloader,
+        DataLoader(trainset, batch_size=batch_size, num_workers=2, sampler=base_train),
+        DataLoader(testset, batch_size=batch_size, num_workers=2, sampler=base_test),
         criterion,
         optimizer,
         allowed_labels=study_sessions[0],
     )
     for session_idx, study_session in enumerate(study_sessions[1:]):
-        curr_session_sampler = ClassSpecificSampler(trainset, study_session)
-        seen_sessions_sampler = ClassSpecificSampler(
+        curr = ClassSpecificSampler(trainset, study_session)
+        prev = ClassSpecificSampler(
             testset, torch.cat(study_sessions[: session_idx + 2])
         )
-        trainloader = DataLoader(
-            trainset, batch_size=batch_size, num_workers=2, sampler=curr_session_sampler
+        session_logs = _train(
+            model,
+            DataLoader(trainset, batch_size=batch_size, num_workers=2, sampler=curr),
+            DataLoader(testset, batch_size=batch_size, num_workers=2, sampler=prev),
+            criterion,
+            optimizer,
+            num_epochs,
+            early_stopping,
+            study_sessions[session_idx + 1],
+            device=device,
         )
-        testloader = DataLoader(
-            testset, batch_size=batch_size, sampler=seen_sessions_sampler
-        )
-        early_stopping_patience = early_stopping
-        mpc = MeanPerClassAccuracy()
-        for _ in range(num_epochs):
-            epoch_logs = _epoch_loop(
-                model, criterion, optimizer, trainloader, testloader, device
-            )
-            curr_metric = mpc(
-                torch.cat(epoch_logs["preds"]),
-                torch.cat(epoch_logs["targets"]),
-                study_sessions[session_idx + 1],
-            )
-            if mpc.set_new_best(curr_metric):
-                early_stopping_patience = early_stopping
-                best_model_weights = copy.deepcopy(model.state_dict())
-            elif curr_metric == 0:
-                early_stopping_patience = early_stopping
-            else:
-                early_stopping_patience -= 1
-            if early_stopping_patience == 0:
-                break
-        session_logs = _epoch_loop(
-            model, criterion, optimizer, trainloader, testloader, device
-        )
-        train_loss_history.append(session_logs["train_loss"])
-        test_loss_history.append(session_logs["test_loss"])
+        train_loss_history.append(session_logs[-1]["train_loss"])
+        test_loss_history.append(session_logs[-1]["test_loss"])
         for metric_idx, metric in enumerate(metrics):
             test_metrics_history[metric_idx].append(
                 metric(
-                    torch.cat(session_logs["preds"]),
-                    torch.cat(session_logs["targets"]),
+                    torch.cat(session_logs[-1]["preds"]),
+                    torch.cat(session_logs[-1]["targets"]),
                 )
             )
         plot_training_progress(
@@ -346,7 +321,7 @@ def train_class_incremental(
             title=f"Training progress of the {save_path} over sessions",
         )
     print(f"The model's weights are saved to {os.path.join(MODELS_DIR, save_path)}")
-    torch.save(best_model_weights, os.path.join(MODELS_DIR, save_path))
+    torch.save(model.state_dict(), os.path.join(MODELS_DIR, save_path))
 
 
 def get_study_sessions(
@@ -377,23 +352,26 @@ def _train(
     testloader: torch.utils.data.DataLoader,
     criterion: torch.nn.Module,
     optimizer: torch.optim.Optimizer,
-    metric: CustomMetric = MeanPerClassAccuracy(),
     num_epochs: int = 100,
-    early_stopping: int = 5,
+    early_stopping: int = 10,
     allowed_labels: torch.Tensor = None,
+    metric: CustomMetric = None,
     device: torch.device = torch.device("cpu"),
-) -> None:
+) -> list[dict]:
     """Train model until metric's impovement stops"""
     model.to(device)
+    if metric is None:
+        metric = MeanPerClassAccuracy()
+    logs = []
     best_model_weights = None
     early_stopping_patience = early_stopping
     for _ in range(num_epochs):
-        epoch_logs = _epoch_loop(
-            model, criterion, optimizer, trainloader, testloader, device
+        logs.append(
+            _epoch_loop(model, criterion, optimizer, trainloader, testloader, device)
         )
         curr_metric = metric(
-            torch.cat(epoch_logs["preds"]),
-            torch.cat(epoch_logs["targets"]),
+            torch.cat(logs[-1]["preds"]),
+            torch.cat(logs[-1]["targets"]),
             allowed_labels,
         )
         if metric.set_new_best(curr_metric):
@@ -406,6 +384,7 @@ def _train(
         if early_stopping_patience == 0:
             break
     model.load_state_dict(best_model_weights)
+    return logs[:-early_stopping]
 
 
 def _epoch_loop(
