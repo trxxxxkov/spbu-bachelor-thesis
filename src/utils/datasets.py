@@ -8,6 +8,7 @@ import torch
 from torchvision.datasets.utils import download_url
 from tqdm.notebook import tqdm
 
+# A directory where downloaded datasets will be stored
 from src.utils.global_constants import DATA_DIR
 
 
@@ -49,7 +50,7 @@ class CUB200Dataset(torch.utils.data.Dataset):
         self.class_labels = self._load_class_labels()
 
     def _load_train_or_test_ids(self, train: bool) -> set:
-        """Get a list of image IDs that belong to the specified train or test split"""
+        """Get a list of image IDs that belong to the specified train or test split."""
         ids = []
         with open(
             os.path.join(self.dataset_dir, "train_test_split.txt"),
@@ -63,7 +64,7 @@ class CUB200Dataset(torch.utils.data.Dataset):
         return ids
 
     def _load_image_paths(self) -> dict:
-        """Get a dict with image IDs and corresponding paths"""
+        """Get a dict with image IDs and corresponding paths."""
         paths = {}
         with open(
             os.path.join(self.dataset_dir, "images.txt"), "r", encoding="utf-8"
@@ -76,7 +77,7 @@ class CUB200Dataset(torch.utils.data.Dataset):
         return paths
 
     def _load_class_labels(self) -> dict:
-        """Get a dict with image IDs and corresponding class labels"""
+        """Get a dict with image IDs and corresponding class labels."""
         labels = {}
         with open(
             os.path.join(self.dataset_dir, "image_class_labels.txt"),
@@ -125,7 +126,8 @@ class EmbeddingDataset(torch.utils.data.Dataset):
 
 
 class ClassSpecificSampler(torch.utils.data.Sampler):
-    """Iterates over indices of samples with specified labels."""
+    """PyTorch sampler that iterates over indices of samples with specified
+    class labels."""
 
     def __init__(self, dataset: torch.utils.data.Dataset, target_classes: torch.Tensor):
         super().__init__()
@@ -138,6 +140,7 @@ class ClassSpecificSampler(torch.utils.data.Sampler):
         ]
 
     def __iter__(self):
+        # Shuffle dataset samples
         indices_permutation = torch.randperm(len(self.indices))
         return iter(self.indices[i] for i in indices_permutation)
 
@@ -146,8 +149,8 @@ class ClassSpecificSampler(torch.utils.data.Sampler):
 
 
 class FeaturePermutation:
-    """PyTorch dataset's transformation: perform random permutation of features in a
-    feature vector."""
+    """PyTorch dataset's transformation that performs random permutation of features
+    in a feature vector."""
 
     def __init__(self, permuted_indices: torch.Tensor):
         self.permuted_indices = permuted_indices

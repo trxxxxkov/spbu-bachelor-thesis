@@ -29,10 +29,6 @@ class CustomMetric:
             return True
         return False
 
-    def reset(self) -> None:
-        """Set attributes to initial value"""
-        self.best = (-1 if self.to_be_maximized else 1) * float("inf")
-
 
 class MeanPerClassAccuracy(CustomMetric):
     """A metric: classification accuracy averaged over selected classes"""
@@ -48,7 +44,8 @@ class MeanPerClassAccuracy(CustomMetric):
 
 class OmegaBase(CustomMetric):
     """A metric: measures the model's retention of the first session, after
-    learning in later study sessions.
+    learning in later study sessions. The metric's values are accumulated over
+    multiple calls.
 
         Omega_base = 1/(T-1) * sum_{i=2}^T (a_{base,i} / a_{ideal}),
 
@@ -73,7 +70,7 @@ class OmegaBase(CustomMetric):
     ) -> float:
         self.i += 1
         # Treat metric evaluation on a base set separately, because it shouldn't
-        # be included in the total number of studied sessions.
+        # be included in the total number of studied sessions and only used in plots
         if self.i == 1:
             return (
                 _mpc_accuracy_with_filter(preds, targets, allowed_labels) / self.a_ideal
@@ -82,15 +79,10 @@ class OmegaBase(CustomMetric):
             self.a_base += _mpc_accuracy_with_filter(preds, targets, allowed_labels)
             return self.a_base / (self.a_ideal * (self.i - 1))
 
-    def reset(self) -> None:
-        """Set attributes to initial value"""
-        self.best = (-1 if self.to_be_maximized else 1) * float("inf")
-        self.i = 0
-        self.a_base = 0
-
 
 class OmegaNew(CustomMetric):
     """A metric: measures the model's ability to immediately recall new tasks.
+    The metric's values are accumulated over multiple calls.
 
         Omega_new = 1/(T-1) * sum_{i=2}^T (a_{new,i}),
 
@@ -112,23 +104,17 @@ class OmegaNew(CustomMetric):
     ) -> float:
         self.i += 1
         # Treat metric evaluation on a base set separately, because it shouldn't
-        # be included in the total number of studied sessions.
+        # be included in the total number of studied sessions and only used in plots.
         if self.i == 1:
             return _mpc_accuracy_with_filter(preds, targets, allowed_labels)
         else:
             self.a_new += _mpc_accuracy_with_filter(preds, targets, allowed_labels)
             return self.a_new / (self.i - 1)
 
-    def reset(self) -> None:
-        """Set attributes to initial values"""
-        self.best = (-1 if self.to_be_maximized else 1) * float("inf")
-        self.i = 0
-        self.a_new = 0
-
 
 class OmegaAll(CustomMetric):
     """A metric: Measures how well a model both retains prior knowledge and
-    acquires new information.
+    acquires new information. The metric's values are accumulated over multiple calls.
 
         Omega_all = 1/(T-1) * sum_{i=2}^T (a_{all,i} / a_{ideal}),
 
@@ -153,7 +139,7 @@ class OmegaAll(CustomMetric):
     ) -> float:
         self.i += 1
         # Treat metric evaluation on a base set separately, because it shouldn't
-        # be included in the total number of studied sessions.
+        # be included in the total number of studied sessions and only used in plots.
         if self.i == 1:
             return (
                 _mpc_accuracy_with_filter(preds, targets, allowed_labels) / self.a_ideal
@@ -161,12 +147,6 @@ class OmegaAll(CustomMetric):
         else:
             self.a_all += _mpc_accuracy_with_filter(preds, targets, allowed_labels)
             return self.a_all / (self.a_ideal * (self.i - 1))
-
-    def reset(self) -> None:
-        """Set attributes to initial value"""
-        self.best = (-1 if self.to_be_maximized else 1) * float("inf")
-        self.i = 0
-        self.a_all = 0
 
 
 def _get_baseline_accuracy(baseline_name: str, dataset_name="cub200_test_embed.pt"):
@@ -180,7 +160,7 @@ def _get_baseline_accuracy(baseline_name: str, dataset_name="cub200_test_embed.p
     model.load_state_dict(state_dict)
     model.eval()
     testset = EmbeddingDataset(dataset_name)
-    testloader = DataLoader(testset, batch_size=128, num_workers=2)
+    testloader = DataLoader(testset, batch_size=256, num_workers=2)
     preds, targets = [], []
     with torch.no_grad():
         for batch_inputs, batch_targets in testloader:

@@ -10,6 +10,7 @@ import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
+# A directory where trained models will be stored
 from src.utils.global_constants import MODELS_DIR
 from src.utils.visualization import plot_training_progress
 from src.utils.datasets import ClassSpecificSampler, FeaturePermutation
@@ -98,23 +99,27 @@ def train_offline(
     device: torch.device = torch.device("cpu"),
 ) -> None:
     """Train a model on all classes and plot losses and metric at
-    each epoch"""
+    each epoch."""
 
     model.to(device)
     logs = []
     metric = MeanPerClassAccuracy()
     best_model_weights = None
+    # Number of epochs to train without the metric's improvement
     early_stopping_patience = early_stopping
     for epoch_idx in range(num_epochs):
         logs.append(
             _epoch_loop(model, criterion, optimizer, trainloader, testloader, device)
         )
+        # Format logs in agreement with plot_training_progress() function:
+        # logs[i]["metrics"] has the following structure: [[str, float], ...]
         logs[-1]["metrics"] = [
             ["MeanPerClassAccuracy", metric(logs[-1]["preds"], logs[-1]["targets"])]
         ]
         plot_training_progress(
             logs, title=f"Training progress of the {save_path} over epochs"
         )
+        # Check if the metric's value acquired in the last epoch is the best one
         if metric.set_new_best(logs[-1]["metrics"][0][1]):
             best_model_weights = copy.deepcopy(model.state_dict())
             early_stopping_patience = early_stopping
@@ -146,14 +151,18 @@ def train_class_incremental(
 
     Divide the dataset into sessions (sets of labels to be studied at each step)
     and train model using samples with labels from this session only. During each
-    study session, num_epochs is performed with early stopping and loss and metrics
-    from the last epoch are used to create a plot."""
+    study session, num_epochs is performed with early stopping and a plot is created."""
+
     model.to(device)
     logs = []
     baseline_name = "kan" if "kan" in save_path else "mlp"
+    # Some Omega metrics are normalized by the baseline's "ideal" metric's value
     metrics = [OmegaBase(baseline_name), OmegaAll(baseline_name), OmegaNew()]
     for session_idx, study_session in enumerate(study_sessions):
+        # Chooses samples with class labels that are in the current study session
         curr = ClassSpecificSampler(trainset, study_session)
+        # Chooses samples with class labels that were in any of the previous
+        # study sessions
         prev = ClassSpecificSampler(
             testset, torch.cat(study_sessions[: session_idx + 1])
         )
@@ -178,7 +187,9 @@ def train_class_incremental(
         logs[-1]["test_loss"], preds, targets = _test_loop(
             model, testloader, criterion, device
         )
+        # Perform test loop to avoid weights changing
         logs[-1]["train_loss"], _, _ = _test_loop(model, trainloader, criterion, device)
+        # logs[i]["metrics"] has the following structure: [[str, float], ...]
         logs[-1]["metrics"] = [
             [
                 "OmegaBase",
@@ -224,8 +235,8 @@ def get_study_sessions(
     shuffled_labels = labels[torch.randperm(labels.shape[0])]
     # The first study session may include more classes than others
     init_labels = shuffled_labels[:base_size]
-    shuffled_labels = torch.split(shuffled_labels[base_size:], session_size)
-    return (init_labels,) + shuffled_labels
+    other_labels_groups = torch.split(shuffled_labels[base_size:], session_size)
+    return (init_labels,) + other_labels_groups
 
 
 def train_data_permutation(
@@ -241,11 +252,24 @@ def train_data_permutation(
     early_stopping: int = 10,
     device: torch.device = torch.device("cpu"),
 ) -> None:
-    """Train a model in data permutation experiment settings."""
+    """Train a model in data permutation experiment settings.
+
+    Create new dataset's representations by randomly permuting the elements
+    of the input feature vectors, with the random permutation changing
+    between sessions (permutation is the same for train and test) and train a
+    model, calculating its ability to retain multiple representations of the
+    dataset. During each study session, num_epochs is performed with early
+    stopping and a plot is created."""
+
     model.to(device)
     logs = []
+    # Collect FeaturePermutation() objects (transforms) for Omega metrics that
+    # are evaluated using all versions of the dataset seen so far
     permutations = []
+    # Some Omega metrics are normalized by the baseline's "ideal" metric's value
     baseline_accuracy = _get_baseline_accuracy("kan" if "kan" in save_path else "mlp")
+    # Omega metrics are accumulated here through all sessions. The list is
+    # already formatted in agreeement with plot_training_progress()
     metrics = [["OmegaBase", 0], ["OmegaAll", 0], ["OmegaNew", 0]]
     for session_idx in range(num_sessions):
         permuted_indices = torch.randperm(trainset[0][0].shape[0])
@@ -271,6 +295,9 @@ def train_data_permutation(
             model, testloader, criterion, device
         )
         logs[-1]["train_loss"], _, _ = _test_loop(model, trainloader, criterion, device)
+        # Omega metrics should not be calculated on the 0-th session, so a slightly
+        # changed (no normalization by number of total sessions) value is added
+        # directly to the logs to avoid erroneous accumulation in "metrics" variable
         if session_idx == 0:
             mpc = _mpc_accuracy_with_filter(preds, targets)
             logs[-1]["metrics"] = [
@@ -309,18 +336,23 @@ def _train(
     metric: CustomMetric = None,
     device: torch.device = torch.device("cpu"),
 ) -> None:
-    """Train model until metric's impovement stops."""
+    """Train model with early stopping (until the metric's imrovement stops)."""
     model.to(device)
     if metric is None:
         metric = MeanPerClassAccuracy()
     best_model_weights = None
+    # Number of epochs to train without the metric's improvement
     early_stopping_patience = early_stopping
     for _ in range(num_epochs):
         logs = _epoch_loop(model, criterion, optimizer, trainloader, testloader, device)
         curr_metric = metric(logs["preds"], logs["targets"], allowed_labels)
+        # Check if the metric's value acquired in the last epoch is the best one
         if metric.set_new_best(curr_metric):
             early_stopping_patience = early_stopping
             best_model_weights = copy.deepcopy(model.state_dict())
+        # If the network's output is inconsistent, it is given more time to adapt.
+        # This helps in CIL, when training one class after another sometimes left
+        # NN's weights in the area where no classes are recognizable
         elif curr_metric == 0:
             early_stopping_patience = early_stopping
         else:
@@ -362,7 +394,7 @@ def _train_loop(
     optimizer: torch.optim.Optimizer,
     device: torch.device = torch.device("cpu"),
 ) -> float:
-    """Optimize model on a train dataset and return loss averaged over batches"""
+    """Perform a training over an entire dataset and return loss averaged over batches"""
     model.train()
     epoch_loss = 0
     for batch_inputs, batch_targets in dataloader:
@@ -383,7 +415,8 @@ def _test_loop(
     criterion: torch.nn.Module = None,
     device: torch.device = torch.device("cpu"),
 ) -> tuple[float, list[torch.Tensor], list[torch.Tensor]]:
-    """Get model's predictions on a test dataset and report logs"""
+    """Perform a validation over an entire dataset, return loss averaged over
+    batches, targets and predictions"""
     model.eval()
     epoch_loss = 0
     preds = []
@@ -409,13 +442,14 @@ def _get_permutation_metrics(
     num_workers: int = 2,
     device: torch.device = torch.device("cpu"),
 ) -> tuple[float, float, float]:
-    """Get a_base_i, a_new_i, a_all_i for metrics calculation in data permutation
-    experiment."""
-
+    """Get a_base_i, a_new_i, a_all_i for Omega metrics calculation in a data
+    permutation experiment. The returned values should be accumulated over several
+    sessions."""
     a_base_i = 0
     a_all_i = 0
     a_new_i = 0
     for session_idx, transform in enumerate(transforms):
+        # Apply features permutation
         testset.transform = transform
         dl = DataLoader(testset, batch_size=batch_size, num_workers=num_workers)
         _, preds, targets = _test_loop(model, dl, device=device)
