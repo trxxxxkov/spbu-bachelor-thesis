@@ -109,14 +109,17 @@ class EmbeddingDataset(torch.utils.data.Dataset):
     stored as PyTorch tensors on a disk.
     """
 
-    def __init__(self, filename: str):
+    def __init__(self, filename: str, transform: object = None):
         self.data = torch.load(os.path.join(DATA_DIR, filename))
+        self.transform = transform
 
     def __len__(self) -> int:
         return len(self.data["labels"])
 
     def __getitem__(self, idx: int) -> dict:
         embedding = self.data["embeddings"][idx]
+        if self.transform:
+            embedding = self.transform(embedding)
         label = self.data["labels"][idx]
         return embedding, label
 
@@ -140,6 +143,22 @@ class ClassSpecificSampler(torch.utils.data.Sampler):
 
     def __len__(self):
         return len(self.indices)
+
+
+class FeaturePermutation:
+    """PyTorch dataset's transformation: perform random permutation of features in a
+    feature vector."""
+
+    def __init__(self, permuted_indices: torch.Tensor):
+        self.permuted_indices = permuted_indices
+
+    def __call__(self, x: torch.Tensor) -> torch.Tensor:
+        return x[self.permuted_indices]
+
+    def __repr__(self) -> str:
+        return (
+            f"permuted indices ({len(self.permuted_indices)}): {self.permuted_indices}"
+        )
 
 
 def extract_embeddings(
@@ -169,8 +188,8 @@ def extract_embeddings(
             batch_outputs = model(batch_inputs)
             outputs.append(batch_outputs.cpu())
             targets.append(batch_targets)
-    outputs = torch.cat(outputs, dim=0)
-    targets = torch.cat(targets, dim=0)
+    outputs = torch.cat(outputs)
+    targets = torch.cat(targets)
     # Make class labels start from 0
     targets = targets - targets.min()
     torch.save(

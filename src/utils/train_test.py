@@ -12,168 +12,16 @@ from tqdm import tqdm
 
 from src.utils.global_constants import MODELS_DIR
 from src.utils.visualization import plot_training_progress
-from src.utils.datasets import EmbeddingDataset, ClassSpecificSampler
-from src.nn_modules.kan import BaselineKAN
-from src.nn_modules.mlp import BaselineMLP
-
-
-class CustomMetric:
-    """A base class with essential functionality for a metric to be used in other
-    utility functions."""
-
-    def __init__(self):
-        self.to_be_maximized = True
-        self.min_increase = 1e-3
-        self.best = -float("inf")
-
-    def set_new_best(self, new_best: float) -> bool:
-        """Check if a new metric's value is better than the stored one and return
-        True if the stored value was updated."""
-        sign = 1 if self.to_be_maximized else -1
-        if (new_best - self.best) * sign > self.min_increase:
-            self.best = new_best
-            return True
-        return False
-
-    def reset(self) -> None:
-        """Set attributes to initial value"""
-        self.best = (-1 if self.to_be_maximized else 1) * float("inf")
-
-
-class MeanPerClassAccuracy(CustomMetric):
-    """A metric: classification accuracy averaged over selected classes"""
-
-    def __call__(
-        self,
-        preds: torch.Tensor,
-        targets: torch.Tensor,
-        allowed_labels: torch.Tensor = None,
-    ) -> float:
-        return _mpc_accuracy_with_filter(preds, targets, allowed_labels)
-
-
-class OmegaBase(CustomMetric):
-    """A metric: measures the model's retention of the first session, after
-    learning in later study sessions.
-
-        Omega_base = 1/(T-1) * sum_{i=2}^T (a_{base,i} / a_{ideal}),
-
-    where
-    T - total number of study sessions;
-    i - index of the current session;
-    a_{base,i} - MPC accuracy on the first session (base set) after i new
-    sessions have been learned,
-    a_{ideal} - offline KAN/MLP MPC accuracy."""
-
-    def __init__(self, baseline_name: str):
-        super().__init__()
-        self.i = 0
-        self.a_base = 0
-        self.a_ideal = _get_baseline_accuracy(baseline_name)
-
-    def __call__(
-        self,
-        preds: torch.Tensor,
-        targets: torch.Tensor,
-        allowed_labels: torch.Tensor = None,
-    ) -> float:
-        self.i += 1
-        # Treat metric evaluation on a base set separately, because it shouldn't
-        # be included in the total number of studied sessions.
-        if self.i == 1:
-            return (
-                _mpc_accuracy_with_filter(preds, targets, allowed_labels) / self.a_ideal
-            )
-        else:
-            self.a_base += _mpc_accuracy_with_filter(preds, targets, allowed_labels)
-            return self.a_base / (self.a_ideal * (self.i - 1))
-
-    def reset(self) -> None:
-        """Set attributes to initial value"""
-        self.best = (-1 if self.to_be_maximized else 1) * float("inf")
-        self.i = 0
-        self.a_base = 0
-
-
-class OmegaNew(CustomMetric):
-    """A metric: measures the model's ability to immediately recall new tasks.
-
-        Omega_new = 1/(T-1) * sum_{i=2}^T (a_{new,i}),
-
-    where
-    T - total number of study sessions;
-    i - index of the current session;
-    a_{new,i} - MPC accuracy for session i immediately after it is learned."""
-
-    def __init__(self):
-        super().__init__()
-        self.i = 0
-        self.a_new = 0
-
-    def __call__(
-        self,
-        preds: torch.Tensor,
-        targets: torch.Tensor,
-        allowed_labels: torch.Tensor = None,
-    ) -> float:
-        self.i += 1
-        # Treat metric evaluation on a base set separately, because it shouldn't
-        # be included in the total number of studied sessions.
-        if self.i == 1:
-            return _mpc_accuracy_with_filter(preds, targets, allowed_labels)
-        else:
-            self.a_new += _mpc_accuracy_with_filter(preds, targets, allowed_labels)
-            return self.a_new / (self.i - 1)
-
-    def reset(self) -> None:
-        """Set attributes to initial values"""
-        self.best = (-1 if self.to_be_maximized else 1) * float("inf")
-        self.i = 0
-        self.a_new = 0
-
-
-class OmegaAll(CustomMetric):
-    """A metric: Measures how well a model both retains prior knowledge and
-    acquires new information.
-
-        Omega_all = 1/(T-1) * sum_{i=2}^T (a_{all,i} / a_{ideal}),
-
-    where
-    T - total number of study sessions;
-    i - index of the current session;
-    a_{all,i} - MPC accuracy of all of the test data for the classes seen to
-    this point,
-    a_{ideal} - offline KAN/MLP MPC accuracy."""
-
-    def __init__(self, baseline_name: str):
-        super().__init__()
-        self.i = 0
-        self.a_all = 0
-        self.a_ideal = _get_baseline_accuracy(baseline_name)
-
-    def __call__(
-        self,
-        preds: torch.Tensor,
-        targets: torch.Tensor,
-        allowed_labels: torch.Tensor = None,
-    ) -> float:
-        self.i += 1
-        # Treat metric evaluation on a base set separately, because it shouldn't
-        # be included in the total number of studied sessions.
-        if self.i == 1:
-            return (
-                _mpc_accuracy_with_filter(preds, targets, allowed_labels) / self.a_ideal
-            )
-        else:
-            self.a_all += _mpc_accuracy_with_filter(preds, targets, allowed_labels)
-            return self.a_all / (self.a_ideal * (self.i - 1))
-
-    def reset(self) -> None:
-        """Set attributes to initial value"""
-        self.best = (-1 if self.to_be_maximized else 1) * float("inf")
-        self.i = 0
-        self.a_all = 0
-
+from src.utils.datasets import ClassSpecificSampler, FeaturePermutation
+from src.utils.metrics import (
+    CustomMetric,
+    MeanPerClassAccuracy,
+    OmegaBase,
+    OmegaAll,
+    OmegaNew,
+    _mpc_accuracy_with_filter,
+    _get_baseline_accuracy,
+)
 
 def measure_forward_backward_time(
     model_cls: torch.nn.Module,
@@ -250,8 +98,8 @@ def train_offline(
     device: torch.device = torch.device("cpu"),
 ) -> None:
     """Train a model on all classes and plot losses and metric at
-    each epoch. The first metric in the metrics list is used for early stopping.
-    """
+    each epoch"""
+
     model.to(device)
     logs = []
     metric = MeanPerClassAccuracy()
@@ -262,10 +110,7 @@ def train_offline(
             _epoch_loop(model, criterion, optimizer, trainloader, testloader, device)
         )
         logs[-1]["metrics"] = [
-            [
-                "MeanPerClassAccuracy",
-                metric(torch.cat(logs[-1]["preds"]), torch.cat(logs[-1]["targets"])),
-            ]
+            ["MeanPerClassAccuracy", metric(logs[-1]["preds"], logs[-1]["targets"])]
         ]
         plot_training_progress(
             logs, title=f"Training progress of the {save_path} over epochs"
@@ -288,10 +133,10 @@ def train_class_incremental(
     model: torch.nn.Module,
     trainset: torch.utils.data.Dataset,
     testset: torch.utils.data.Dataset,
-    study_sessions: tuple[torch.Tensor],
     criterion: torch.nn.Module,
     optimizer: torch.optim.Optimizer,
     save_path: str,
+    study_sessions: tuple[torch.Tensor],
     batch_size: int = 256,
     num_epochs: int = 100,
     early_stopping: int = 10,
@@ -312,10 +157,16 @@ def train_class_incremental(
         prev = ClassSpecificSampler(
             testset, torch.cat(study_sessions[: session_idx + 1])
         )
-        session_logs = _train(
+        trainloader = DataLoader(
+            trainset, batch_size=batch_size, num_workers=2, sampler=curr
+        )
+        testloader = DataLoader(
+            testset, batch_size=batch_size, num_workers=2, sampler=prev
+        )
+        _train(
             model,
-            DataLoader(trainset, batch_size=batch_size, num_workers=2, sampler=curr),
-            DataLoader(testset, batch_size=batch_size, num_workers=2, sampler=prev),
+            trainloader,
+            testloader,
             criterion,
             optimizer,
             num_epochs,
@@ -323,9 +174,11 @@ def train_class_incremental(
             study_sessions[session_idx],
             device=device,
         )
-        logs.append(session_logs[-1])
-        preds = torch.cat(logs[-1]["preds"])
-        targets = torch.cat(logs[-1]["targets"])
+        logs.append({})
+        logs[-1]["test_loss"], preds, targets = _test_loop(
+            model, testloader, criterion, device
+        )
+        logs[-1]["train_loss"], _, _ = _test_loop(model, trainloader, criterion, device)
         logs[-1]["metrics"] = [
             [
                 "OmegaBase",
@@ -375,6 +228,75 @@ def get_study_sessions(
     return (init_labels,) + shuffled_labels
 
 
+def train_data_permutation(
+    model: torch.nn.Module,
+    trainset: torch.utils.data.Dataset,
+    testset: torch.utils.data.Dataset,
+    criterion: torch.nn.Module,
+    optimizer: torch.optim.Optimizer,
+    save_path: str,
+    num_sessions: int = 4,
+    batch_size: int = 256,
+    num_epochs: int = 100,
+    early_stopping: int = 10,
+    device: torch.device = torch.device("cpu"),
+) -> None:
+    """Train a model in data permutation experiment settings."""
+    model.to(device)
+    logs = []
+    permutations = []
+    baseline_accuracy = _get_baseline_accuracy("kan" if "kan" in save_path else "mlp")
+    metrics = [["OmegaBase", 0], ["OmegaAll", 0], ["OmegaNew", 0]]
+    for session_idx in range(num_sessions):
+        permuted_indices = torch.randperm(trainset[0][0].shape[0])
+        permutations.append(FeaturePermutation(permuted_indices))
+        trainset.transform = permutations[-1]
+        testset.transform = permutations[-1]
+        trainloader = DataLoader(
+            trainset, batch_size=batch_size, num_workers=2, shuffle=True
+        )
+        testloader = DataLoader(testset, batch_size=batch_size, num_workers=2)
+        _train(
+            model,
+            trainloader,
+            testloader,
+            criterion,
+            optimizer,
+            num_epochs,
+            early_stopping,
+            device=device,
+        )
+        logs.append({})
+        logs[-1]["test_loss"], preds, targets = _test_loop(
+            model, testloader, criterion, device
+        )
+        logs[-1]["train_loss"], _, _ = _test_loop(model, trainloader, criterion, device)
+        if session_idx == 0:
+            mpc = _mpc_accuracy_with_filter(preds, targets)
+            logs[-1]["metrics"] = [
+                ["OmegaBase", mpc / baseline_accuracy],
+                ["OmegaAll", mpc / baseline_accuracy],
+                ["OmegaNew", mpc],
+            ]
+        else:
+            a_base_i, a_all_i, a_new_i = _get_permutation_metrics(
+                model, testset, permutations, batch_size=batch_size, device=device
+            )
+            metrics[0][1] += a_base_i / baseline_accuracy
+            metrics[1][1] += a_all_i / baseline_accuracy
+            metrics[2][1] += a_new_i
+            logs[-1]["metrics"] = [
+                [metric[0], metric[1] / session_idx] for metric in metrics
+            ]
+        plot_training_progress(
+            logs,
+            title=f"Training progress of the {save_path} over sessions",
+            xlabel="Session",
+        )
+    print(f"The model's weights are saved to {os.path.join(MODELS_DIR, save_path)}")
+    torch.save(model.state_dict(), os.path.join(MODELS_DIR, save_path))
+
+
 def _train(
     model: torch.nn.Module,
     trainloader: torch.utils.data.DataLoader,
@@ -386,23 +308,16 @@ def _train(
     allowed_labels: torch.Tensor = None,
     metric: CustomMetric = None,
     device: torch.device = torch.device("cpu"),
-) -> list[dict]:
-    """Train model until metric's impovement stops"""
+) -> None:
+    """Train model until metric's impovement stops."""
     model.to(device)
     if metric is None:
         metric = MeanPerClassAccuracy()
-    logs = []
     best_model_weights = None
     early_stopping_patience = early_stopping
     for _ in range(num_epochs):
-        logs.append(
-            _epoch_loop(model, criterion, optimizer, trainloader, testloader, device)
-        )
-        curr_metric = metric(
-            torch.cat(logs[-1]["preds"]),
-            torch.cat(logs[-1]["targets"]),
-            allowed_labels,
-        )
+        logs = _epoch_loop(model, criterion, optimizer, trainloader, testloader, device)
+        curr_metric = metric(logs["preds"], logs["targets"], allowed_labels)
         if metric.set_new_best(curr_metric):
             early_stopping_patience = early_stopping
             best_model_weights = copy.deepcopy(model.state_dict())
@@ -413,7 +328,6 @@ def _train(
         if early_stopping_patience == 0:
             break
     model.load_state_dict(best_model_weights)
-    return logs[:-early_stopping]
 
 
 def _epoch_loop(
@@ -484,37 +398,31 @@ def _test_loop(
                 epoch_loss += batch_loss.item()
             preds.append(batch_outputs)
             targets.append(batch_targets)
-    return epoch_loss / len(dataloader), preds, targets
+    return epoch_loss / len(dataloader), torch.cat(preds), torch.cat(targets)
 
 
-def _get_baseline_accuracy(baseline_name: str, dataset_name="cub200_test_embed.pt"):
-    """Download weights for a baseline and run a test loop to calculate accuracy"""
-    # baseline_name - "kan" | "mlp"
-    if baseline_name == "kan":
-        model = BaselineKAN()
-    else:
-        model = BaselineMLP()
-    state_dict = torch.load(os.path.join(MODELS_DIR, f"offline_{baseline_name}.pth"))
-    model.load_state_dict(state_dict)
-    testset = EmbeddingDataset(dataset_name)
-    testloader = DataLoader(testset, batch_size=128, num_workers=2)
-    _, preds, targets = _test_loop(model, testloader)
-    metric = MeanPerClassAccuracy()
-    return metric(torch.cat(preds), torch.cat(targets))
+def _get_permutation_metrics(
+    model: torch.nn.Module,
+    testset: torch.utils.data.Dataset,
+    transforms: list[FeaturePermutation],
+    batch_size: int = 256,
+    num_workers: int = 2,
+    device: torch.device = torch.device("cpu"),
+) -> tuple[float, float, float]:
+    """Get a_base_i, a_new_i, a_all_i for metrics calculation in data permutation
+    experiment."""
 
-
-def _mpc_accuracy_with_filter(
-    preds: torch.Tensor, targets: torch.Tensor, allowed_labels: torch.Tensor = None
-) -> float:
-    """Compute mean per class accuracy metric, but only considering labels from allowed_labels"""
-    preds = preds.argmax(dim=1)
-    class_total = torch.zeros(targets.max() + 1)
-    class_correct = torch.zeros(targets.max() + 1)
-    for i, label in enumerate(targets):
-        if allowed_labels is None or label in allowed_labels:
-            class_total[label] += 1
-            class_correct[label] += (targets[i] == preds[i]).item()
-        # +1e-8 for numerical stability in case if class_total == 0
-    if allowed_labels is None:
-        return (class_correct / (class_total + 1e-8)).mean().item()
-    return (class_correct / (class_total + 1e-8)).sum().item() / len(allowed_labels)
+    a_base_i = 0
+    a_all_i = 0
+    a_new_i = 0
+    for session_idx, transform in enumerate(transforms):
+        testset.transform = transform
+        dl = DataLoader(testset, batch_size=batch_size, num_workers=num_workers)
+        _, preds, targets = _test_loop(model, dl, device=device)
+        mpc = _mpc_accuracy_with_filter(preds, targets)
+        if session_idx == 0:
+            a_base_i += mpc
+        if session_idx == len(transforms) - 1:
+            a_new_i += mpc
+        a_all_i += mpc / len(transforms)
+    return a_base_i, a_all_i, a_new_i
