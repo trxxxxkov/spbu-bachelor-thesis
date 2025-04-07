@@ -7,6 +7,7 @@ from IPython.display import clear_output
 def plot_training_progress(
     logs: list[dict],
     title: str = "Train, test losses and metric values over epochs",
+    xlabel: str = "Epoch",
 ) -> None:
     """Visualizes training progress by plotting loss curves and metrics in real-time
 
@@ -29,15 +30,21 @@ def plot_training_progress(
     ax1.plot(
         [epoch["test_loss"] for epoch in logs], color="tab:blue", label="Test loss"
     )
-    ax1.set_xlabel("Epoch")
+    ax1.set_xlabel(xlabel)
     ax1.set_ylabel("Loss")
     ax1.tick_params(axis="y", labelcolor="tab:blue")
-    # Force integer ticks for all epochs
-    ax1.set_xticks(range(len(logs)))
+    # Determine xticks positions based on the number of epochs
+    if len(logs) > 11:
+        xticks_positions = list(range(0, len(logs), 5))
+        last_epoch = len(logs) - 1
+        if last_epoch not in xticks_positions:
+            xticks_positions.append(last_epoch)
+    else:
+        xticks_positions = list(range(len(logs)))
+    ax1.set_xticks(xticks_positions)
     ax1.set_xticklabels(
-        range(len(logs)),
-        rotation=60,
-        fontsize=9,
+        [str(pos) for pos in xticks_positions],
+        rotation=45,
         ha="center",
     )
     ax1.grid(True, axis="x", color="black", linestyle="-", alpha=0.3)
@@ -45,9 +52,9 @@ def plot_training_progress(
     ax2 = ax1.twinx()
     for i in range(len(logs[-1]["metrics"])):
         ax2.plot(
-            [epoch["metrics"][i] for epoch in logs],
+            [epoch["metrics"][i][1] for epoch in logs],
             color=(0, (i + 1) / (len(logs[-1]["metrics"])), 0),
-            label=f"Test metric #{i}",
+            label=logs[-1]["metrics"][i][0],
         )
     ax2.set_ylabel("Metrics")
     ax2.tick_params(axis="y", labelcolor="tab:green")

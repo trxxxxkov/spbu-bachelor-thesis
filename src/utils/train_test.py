@@ -65,26 +65,27 @@ class OmegaBase(CustomMetric):
     sessions have been learned,
     a_{ideal} - offline KAN/MLP MPC accuracy."""
 
-    def __init__(self, study_sessions: tuple[torch.Tensor], baseline_name: str):
+    def __init__(self, baseline_name: str):
         super().__init__()
-        self.study_sessions = study_sessions
         self.i = 0
         self.a_base = 0
         self.a_ideal = _get_baseline_accuracy(baseline_name)
 
-    def __call__(self, preds: torch.Tensor, targets: torch.Tensor) -> float:
+    def __call__(
+        self,
+        preds: torch.Tensor,
+        targets: torch.Tensor,
+        allowed_labels: torch.Tensor = None,
+    ) -> float:
         self.i += 1
         # Treat metric evaluation on a base set separately, because it shouldn't
         # be included in the total number of studied sessions.
         if self.i == 1:
             return (
-                _mpc_accuracy_with_filter(preds, targets, self.study_sessions[0])
-                / self.a_ideal
+                _mpc_accuracy_with_filter(preds, targets, allowed_labels) / self.a_ideal
             )
         else:
-            self.a_base += _mpc_accuracy_with_filter(
-                preds, targets, self.study_sessions[0]
-            )
+            self.a_base += _mpc_accuracy_with_filter(preds, targets, allowed_labels)
             return self.a_base / (self.a_ideal * (self.i - 1))
 
     def reset(self) -> None:
@@ -104,22 +105,24 @@ class OmegaNew(CustomMetric):
     i - index of the current session;
     a_{new,i} - MPC accuracy for session i immediately after it is learned."""
 
-    def __init__(self, study_sessions: tuple[torch.Tensor]):
+    def __init__(self):
         super().__init__()
-        self.study_sessions = study_sessions
         self.i = 0
         self.a_new = 0
 
-    def __call__(self, preds: torch.Tensor, targets: torch.Tensor) -> float:
+    def __call__(
+        self,
+        preds: torch.Tensor,
+        targets: torch.Tensor,
+        allowed_labels: torch.Tensor = None,
+    ) -> float:
         self.i += 1
         # Treat metric evaluation on a base set separately, because it shouldn't
         # be included in the total number of studied sessions.
         if self.i == 1:
-            return _mpc_accuracy_with_filter(preds, targets, self.study_sessions[0])
+            return _mpc_accuracy_with_filter(preds, targets, allowed_labels)
         else:
-            self.a_new += _mpc_accuracy_with_filter(
-                preds, targets, self.study_sessions[self.i - 1]
-            )
+            self.a_new += _mpc_accuracy_with_filter(preds, targets, allowed_labels)
             return self.a_new / (self.i - 1)
 
     def reset(self) -> None:
@@ -142,26 +145,27 @@ class OmegaAll(CustomMetric):
     this point,
     a_{ideal} - offline KAN/MLP MPC accuracy."""
 
-    def __init__(self, study_sessions: tuple[torch.Tensor], baseline_name: str):
+    def __init__(self, baseline_name: str):
         super().__init__()
-        self.study_sessions = study_sessions
         self.i = 0
         self.a_all = 0
         self.a_ideal = _get_baseline_accuracy(baseline_name)
 
-    def __call__(self, preds: torch.Tensor, targets: torch.Tensor) -> float:
+    def __call__(
+        self,
+        preds: torch.Tensor,
+        targets: torch.Tensor,
+        allowed_labels: torch.Tensor = None,
+    ) -> float:
         self.i += 1
         # Treat metric evaluation on a base set separately, because it shouldn't
         # be included in the total number of studied sessions.
         if self.i == 1:
             return (
-                _mpc_accuracy_with_filter(preds, targets, self.study_sessions[0])
-                / self.a_ideal
+                _mpc_accuracy_with_filter(preds, targets, allowed_labels) / self.a_ideal
             )
         else:
-            self.a_all += _mpc_accuracy_with_filter(
-                preds, targets, torch.cat(self.study_sessions[: self.i])
-            )
+            self.a_all += _mpc_accuracy_with_filter(preds, targets, allowed_labels)
             return self.a_all / (self.a_ideal * (self.i - 1))
 
     def reset(self) -> None:
@@ -239,7 +243,6 @@ def train_offline(
     trainloader: torch.utils.data.DataLoader,
     testloader: torch.utils.data.DataLoader,
     criterion: torch.nn.Module,
-    metrics: list[CustomMetric],
     optimizer: torch.optim.Optimizer,
     save_path: str,
     num_epochs: int = 100,
@@ -251,21 +254,23 @@ def train_offline(
     """
     model.to(device)
     logs = []
+    metric = MeanPerClassAccuracy()
     best_model_weights = None
     early_stopping_patience = early_stopping
     for epoch_idx in range(num_epochs):
         logs.append(
             _epoch_loop(model, criterion, optimizer, trainloader, testloader, device)
         )
-        logs[-1]["metrics"] = [0 for _ in range(len(metrics))]
-        for metric_idx, metric in enumerate(metrics):
-            logs[-1]["metrics"][metric_idx] = metric(
-                torch.cat(logs[-1]["preds"]), torch.cat(logs[-1]["targets"])
-            )
+        logs[-1]["metrics"] = [
+            [
+                "MeanPerClassAccuracy",
+                metric(torch.cat(logs[-1]["preds"]), torch.cat(logs[-1]["targets"])),
+            ]
+        ]
         plot_training_progress(
             logs, title=f"Training progress of the {save_path} over epochs"
         )
-        if metrics[0].set_new_best(logs[-1]["metrics"][0]):
+        if metric.set_new_best(logs[-1]["metrics"][0][1]):
             best_model_weights = copy.deepcopy(model.state_dict())
             early_stopping_patience = early_stopping
         else:
@@ -273,7 +278,7 @@ def train_offline(
         if early_stopping_patience == 0:
             print(f"Early stopping is triggered at the epoch {epoch_idx}.")
             break
-    print(f"Best metric's value: {metrics[0].best:.5f}.")
+    print(f"Best metric's value: {metric.best:.5f}.")
     print(f"The model's weights are saved to {os.path.join(MODELS_DIR, save_path)}")
     torch.save(best_model_weights, os.path.join(MODELS_DIR, save_path))
     model.load_state_dict(best_model_weights)
@@ -285,7 +290,6 @@ def train_class_incremental(
     testset: torch.utils.data.Dataset,
     study_sessions: tuple[torch.Tensor],
     criterion: torch.nn.Module,
-    metrics: list[CustomMetric],
     optimizer: torch.optim.Optimizer,
     save_path: str,
     batch_size: int = 256,
@@ -301,6 +305,8 @@ def train_class_incremental(
     from the last epoch are used to create a plot."""
     model.to(device)
     logs = []
+    baseline_name = "kan" if "kan" in save_path else "mlp"
+    metrics = [OmegaBase(baseline_name), OmegaAll(baseline_name), OmegaNew()]
     for session_idx, study_session in enumerate(study_sessions):
         curr = ClassSpecificSampler(trainset, study_session)
         prev = ClassSpecificSampler(
@@ -318,13 +324,30 @@ def train_class_incremental(
             device=device,
         )
         logs.append(session_logs[-1])
-        logs[-1]["metrics"] = [0 for _ in range(len(metrics))]
-        for metric_idx, metric in enumerate(metrics):
-            logs[-1]["metrics"][metric_idx] = metric(
-                torch.cat(logs[-1]["preds"]), torch.cat(logs[-1]["targets"])
-            )
+        preds = torch.cat(logs[-1]["preds"])
+        targets = torch.cat(logs[-1]["targets"])
+        logs[-1]["metrics"] = [
+            [
+                "OmegaBase",
+                metrics[0](preds, targets, allowed_labels=study_sessions[0]),
+            ],
+            [
+                "OmegaAll",
+                metrics[1](
+                    preds,
+                    targets,
+                    allowed_labels=torch.cat(study_sessions[: session_idx + 1]),
+                ),
+            ],
+            [
+                "OmegaNew",
+                metrics[2](preds, targets, allowed_labels=study_session),
+            ],
+        ]
         plot_training_progress(
-            logs, title=f"Training progress of the {save_path} over sessions"
+            logs,
+            title=f"Training progress of the {save_path} over sessions",
+            xlabel="Session",
         )
     print(f"The model's weights are saved to {os.path.join(MODELS_DIR, save_path)}")
     torch.save(model.state_dict(), os.path.join(MODELS_DIR, save_path))
