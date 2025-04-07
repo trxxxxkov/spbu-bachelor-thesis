@@ -1,6 +1,16 @@
 # spbu-bachelor-thesis
 Code and thesis document for my Bachelor's diploma on Kolmogorov-Arnold Networks with the implementation and reports included
 
+## How to Use
+
+Follow these steps to get started:
+1. Review the prerequisites and install all required dependencies as described in the [Installation](#installation) section.
+2. Navigate to the `src/notebooks/` directory and run the notebooks sequentially.
+3. After executing all notebooks, you will find:
+   - Datasets and embeddings that were used in experiments in `src/data/`;
+   - A summary of the proposed models and their metrics (same as in the thesis) in `src/data/report.csv`;
+   - Saved weights of the trained models in `src/models/`;
+
 ## Installation
 
 **Pre-requisites:**
