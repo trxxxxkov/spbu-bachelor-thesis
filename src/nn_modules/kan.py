@@ -23,14 +23,14 @@ class KANLayer(torch.nn.Module):
         self,
         in_features: int,
         out_features: int,
-        grid_step: int = 0.5,
+        grid_size: int = 3,
     ):
         super().__init__()
         self.in_features = in_features
         self.out_features = out_features
-        self.grid_step = grid_step
+        self.grid_step = 1 / grid_size
         self.bn = torch.nn.BatchNorm1d(in_features)
-        knots_num = math.ceil(1 / grid_step) + 1 + self.spline_order
+        knots_num = math.ceil(1 / self.grid_step) + 1 + self.spline_order
         # Coefficients for basis functions (aka control points)
         self.bspline_coeffs = torch.nn.Parameter(
             torch.Tensor(out_features, in_features, knots_num)
@@ -148,11 +148,13 @@ class BaselineKAN(torch.nn.Module):
     def __init__(
         self,
         input_dim: int = 2048,
+        hidden_dim: int = 400,
         output_dim: int = 200,
     ):
         super().__init__()
-        # No hidden layers added to achieve comparable number of parameters
-        self.classifier = KANLayer(input_dim, output_dim)
+        self.classifier = torch.nn.Sequential(
+            KANLayer(input_dim, hidden_dim), KANLayer(hidden_dim, output_dim)
+        )
 
     def forward(self, x: torch.Tensor):
         return self.classifier(x)

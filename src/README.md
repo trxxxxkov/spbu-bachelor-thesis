@@ -12,8 +12,7 @@ src/  # Main directory for the project's source code.
 ├── notebooks/                              # Directory for experiments and visualization.
 │   ├── 01_data_preparation.ipynb           # Datasets downloading and extraction of embeddings.
 │   ├── 02_proposed_models.ipynb            # Offline training and benchmarks for proposed models.
-│   ├── 03_class_incremental_learning.ipynb # CIL experiment with proposed models.
-│   └── 04_data_permutation.ipynb           # Data permutation experiment with proposed models.
+│   └── 03_continual_learning.ipynb         # CIL and data permutation experiments
 ├── utils/                   # Directory for miscellaneous convenience functions.
 │   ├── datasets.py          # Custom PyTorch datasets and data-related utilities.
 │   ├── global_constants.py  # Constants and certain params mentioned in the thesis.
