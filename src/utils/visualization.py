@@ -82,7 +82,9 @@ def plot_training_progress(
         metric[1] for metric in logs[-1]["metrics"]
     ]  # Extract metric values from last epoch
     # Combine the current ticks and extra ticks, remove duplicates and sort them
-    combined_ticks = sorted(set(list(current_ticks) + extra_ticks))
+    combined_ticks = sorted(
+        set([tick for tick in current_ticks if tick > 0] + extra_ticks)
+    )
     ax2.set_yticks(combined_ticks)
 
     plt.title(title)
