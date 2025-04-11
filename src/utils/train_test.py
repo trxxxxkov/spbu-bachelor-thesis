@@ -183,6 +183,9 @@ def train_class_incremental(
             study_sessions[session_idx],
             device=device,
         )
+        # Update FIM and saved model's weights if EWCLoss is used
+        if hasattr(criterion, "update"):
+            criterion.update(trainset, device=device)
         logs.append({})
         logs[-1]["test_loss"], preds, targets = _test_loop(
             model, testloader, criterion, device
@@ -290,6 +293,9 @@ def train_data_permutation(
             early_stopping,
             device=device,
         )
+        # Update FIM and saved model's weights if EWCLoss is used
+        if hasattr(criterion, "update"):
+            criterion.update(trainset, device=device)
         logs.append({})
         logs[-1]["test_loss"], preds, targets = _test_loop(
             model, testloader, criterion, device

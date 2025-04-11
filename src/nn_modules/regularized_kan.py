@@ -26,7 +26,7 @@ class EWCLoss(torch.nn.Module):
         self,
         base_loss: torch.nn.Module,
         model: torch.nn.Module,
-        lambda_: float = 0.1,
+        lambda_: float = 1e6,
         decay: float = 0.95,
         device: torch.device = torch.device("cpu"),
     ):
