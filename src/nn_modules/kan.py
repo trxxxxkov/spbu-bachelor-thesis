@@ -55,6 +55,16 @@ class KANLayer(torch.nn.Module):
         self.register_buffer("cubic_bspline_formula", cubic_bspline_formula)
         self._initialize_params()
 
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Calculate output values as a linear combination of B-splines(x)"""
+        # Normalize and clip input vales to fit in the fixed spline grids' range
+        x = torch.clip(self.bn(x), self.grid[self.spline_order], self.grid[-1])
+        output = F.linear(  # pylint: disable=E1102
+            self._bsplines_values_at(x).view(x.shape[0], -1),
+            self.bspline_coeffs.view(self.out_features, -1),
+        )
+        return output
+
     def _initialize_params(self):
         """Initialize B-splines' coefficients by interpolating uniform noise.
 
@@ -126,16 +136,6 @@ class KANLayer(torch.nn.Module):
                 src=ith_left_bspline_value.unsqueeze(-1),
             )
         return bsplines_values.contiguous()
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Calculate output values as a linear combination of B-splines(x)"""
-        # Normalize and clip input vales to fit in the fixed spline grids' range
-        x = torch.clip(self.bn(x), self.grid[self.spline_order], self.grid[-1])
-        output = F.linear(  # pylint: disable=E1102
-            self._bsplines_values_at(x).view(x.shape[0], -1),
-            self.bspline_coeffs.view(self.out_features, -1),
-        )
-        return output
 
 
 class BaselineKAN(torch.nn.Module):
