@@ -6,7 +6,7 @@ import PIL
 
 import torch
 from torchvision.datasets.utils import download_url
-from tqdm.notebook import tqdm
+from tqdm import tqdm
 
 # A directory where downloaded datasets will be stored
 from src.utils.global_constants import DATA_DIR
