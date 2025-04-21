@@ -18,6 +18,7 @@ Follow these steps to get started:
 ```bash
 Python 3.9 or higher
 pip
+venv
 ```
 
 **This project can be installed using pip as follows:**
@@ -25,6 +26,8 @@ pip
 ```bash
 git clone https://github.com/trxxxxkov/spbu-bachelor-thesis.git
 cd spbu-bachelor-thesis
+python3 -m venv .venv
+source .venv/bin/activate
 pip install .
 ```
 
