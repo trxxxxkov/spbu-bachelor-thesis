@@ -16,8 +16,8 @@ class SOMLayer(torch.nn.Module):
         self,
         in_features: int,
         out_features: int,
-        variance_lr: float = 0.05,
         variance_init: float = 0.5,
+        variance_lr: float = 0.05,
     ):
         # A square grid topology is used for the self-organizing map and
         # out_features is equal to a number of prototypes in it
@@ -114,9 +114,11 @@ class RehearsalKAN(torch.nn.Module):
         input_dim: int = 2048,
         hidden_dim: int = 64,
         output_dim: int = 200,
+        som_variance_init: float = 0.5,
+        som_variance_lr: float = 0.05,
     ):
         super().__init__()
-        self.som = SOMLayer(input_dim, hidden_dim)
+        self.som = SOMLayer(input_dim, hidden_dim, som_variance_init, som_variance_lr)
         self.classifier = KANLayer(hidden_dim, output_dim)
         # self.classifier = torch.nn.Linear(hidden_dim, output_dim)
 

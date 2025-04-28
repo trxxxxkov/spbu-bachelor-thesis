@@ -221,7 +221,10 @@ def train_class_incremental(
 
 
 def get_study_sessions(
-    dataset: torch.utils.data.Dataset, base_size: int, session_size: int = 1
+    dataset: torch.utils.data.Dataset,
+    base_size: int,
+    session_size: int = 1,
+    device: torch.device = torch.device("cpu"),
 ) -> tuple[torch.Tensor]:
     """Separate labels into non-overlapping groups for study sessions in CIL
 
@@ -234,7 +237,7 @@ def get_study_sessions(
     Returns:
         A tuple of 1-D tensors with class indices for i-th study session."""
 
-    labels = torch.tensor([labels for _, labels in dataset]).unique()
+    labels = torch.tensor([labels for _, labels in dataset], device=device).unique()
     shuffled_labels = labels[torch.randperm(labels.shape[0])]
     # The first study session may include more classes than others
     init_labels = shuffled_labels[:base_size]
