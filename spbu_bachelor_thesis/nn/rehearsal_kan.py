@@ -4,7 +4,7 @@ layer it relies on"""
 import torch
 from tqdm import tqdm
 
-from src.nn_modules.kan import KANLayer
+from spbu_bachelor_thesis.nn.kan import KANLayer
 
 
 class SOMLayer(torch.nn.Module):

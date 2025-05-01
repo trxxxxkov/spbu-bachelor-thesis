@@ -9,7 +9,7 @@ from torchvision.datasets.utils import download_url
 from tqdm import tqdm
 
 # A directory where downloaded datasets will be stored
-from src.utils.global_constants import DATA_DIR
+from spbu_bachelor_thesis.global_constants import DATA_DIR
 
 
 class CUB200Dataset(torch.utils.data.Dataset):

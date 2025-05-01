@@ -5,5 +5,5 @@ import os
 from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent
-DATA_DIR = os.path.join(ROOT_DIR, "src", "data")
-MODELS_DIR = os.path.join(ROOT_DIR, "src", "models")
+DATA_DIR = os.path.join(ROOT_DIR, "data")
+MODELS_DIR = os.path.join(ROOT_DIR, "models")

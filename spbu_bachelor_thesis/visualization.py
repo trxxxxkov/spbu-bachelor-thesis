@@ -3,6 +3,7 @@
 import matplotlib.pyplot as plt
 from IPython.display import clear_output
 
+
 def plot_training_progress(
     logs: list[dict],
     title: str = "Train, test losses and metric values over epochs",

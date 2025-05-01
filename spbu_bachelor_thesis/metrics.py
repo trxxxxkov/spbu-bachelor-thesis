@@ -5,10 +5,10 @@ import os
 import torch
 from torch.utils.data import DataLoader
 
-from src.utils.global_constants import MODELS_DIR
-from src.utils.datasets import EmbeddingDataset
-from src.nn_modules.kan import BaselineKAN
-from src.nn_modules.mlp import BaselineMLP
+from spbu_bachelor_thesis.global_constants import MODELS_DIR
+from spbu_bachelor_thesis.datasets import EmbeddingDataset
+from spbu_bachelor_thesis.nn.kan import BaselineKAN
+from spbu_bachelor_thesis.nn.mlp import BaselineMLP
 
 
 class CustomMetric:

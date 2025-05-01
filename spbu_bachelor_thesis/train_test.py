@@ -11,10 +11,10 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 # A directory where trained models will be stored
-from src.utils.global_constants import MODELS_DIR
-from src.utils.visualization import plot_training_progress
-from src.utils.datasets import ClassSpecificSampler, FeaturePermutation
-from src.utils.metrics import (
+from spbu_bachelor_thesis.global_constants import MODELS_DIR
+from spbu_bachelor_thesis.visualization import plot_training_progress
+from spbu_bachelor_thesis.datasets import ClassSpecificSampler, FeaturePermutation
+from spbu_bachelor_thesis.metrics import (
     CustomMetric,
     MeanPerClassAccuracy,
     OmegaBase,
@@ -23,6 +23,7 @@ from src.utils.metrics import (
     _mpc_accuracy_with_filter,
     _get_baseline_accuracy,
 )
+
 
 def measure_forward_backward_time(
     model_cls: torch.nn.Module,
