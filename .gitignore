@@ -6,6 +6,17 @@
 # VSCode setting
 .vscode
 
+# Latex local build artifacts
+/reports/tex/thesis.pdf
+/reports/tex/presentation.pdf
+*.aux
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.synctex.gz
+*.toc
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
