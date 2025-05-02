@@ -91,8 +91,8 @@
 \newcommand{\MList}[1]{\par\begin{itemize}#1\end{itemize}}
 \newcommand{\NList}[1]{\par\begin{enumerate}#1\end{enumerate}}
 
-% Нумерация только тех формул, на которые в тексте присутствует ссылка
-\usepackage{autonum}
+\usepackage{mathtools}
+\mathtoolsset{showonlyrefs}   % проставлять номера только тем уравнениям, на которые есть \ref
 
 % Список литературы
 \renewenvironment{thebibliography}[1]

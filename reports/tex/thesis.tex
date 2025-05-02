@@ -4,7 +4,7 @@
 % article потому что стандарт не подразумевает разделов
 % Глава = section, Параграф = subsection
 % (понятия "глава" и "параграф" из документа, описывающего диплом)
-\documentclass[a4paper,article,14pt]{extarticle}
+\documentclass[a4paper,14pt]{extarticle}
 
 % Remove redundant metadata to achieve reproducible building process
 \pdfinfoomitdate=1
@@ -12,6 +12,17 @@
 
 % Подключаем главный пакет со всем необходимым
 \usepackage{thesis}
+
+\usepackage{csquotes}   % до biblatex
+\usepackage[
+  backend=biber,
+  style=gost-numeric,      % или gost-authoryear
+  language=auto,           % определять язык автоматически
+  autolang=other,          % переключаться между ru/en
+  bibencoding=utf8,
+  sorting=nyt              % ГОСТ рекомендует автор–год–название
+]{biblatex}
+\addbibresource{thesis.bib}
 
 % Пакеты по желанию (самые распространенные)
 % Хитрые мат. символы
@@ -25,6 +36,7 @@
 \usepackage{amsthm,amssymb, amsmath}
 \usepackage{textcomp}
 \usepackage{caption}
+
 \usepackage{hyperref}
 
 \begin{document}
@@ -275,15 +287,15 @@ KAN и MLP в задаче распознавания образов. Набор
 
 \specialsection{Обзор литературы}
 
-Основу данной работы составила публикация \cite{liu2025kankolmogorovarnoldnetworks}. В ней описана архитектура нейронных сетей Колмогорова-Арнольда и даны математические обоснования её эффективности, а также в нескольких научных и прикладных задачах продемонстрированы её преимущества перед традиционным многослойным перцептроном. Помимо прочего, в ней сформулировано требовавшее дальнейших исследований предположение о большом потенциале использования KAN в непрерывном обучении.
+Основу данной работы составила публикация \cite{liu2024kan}. В ней описана архитектура нейронных сетей Колмогорова-Арнольда и даны математические обоснования её эффективности, а также в нескольких научных и прикладных задачах продемонстрированы её преимущества перед традиционным многослойным перцептроном. Помимо прочего, в ней сформулировано требовавшее дальнейших исследований предположение о большом потенциале использования KAN в непрерывном обучении.
 
 Несмотря на значительное количество научных публикаций, монографий по теме непрерывного обучения немного. Изучение материала строилось на основе \cite{lifelongmachinelearning}. Эта работа предоставляет всесторонний обзор теоретических и практических аспектов непрерывного обучения, освещая в том числе и передовые на момент написания книги методы.
 
-В процессе адаптации методов борьбы с катастрофическим забыванием использовались замечания, сформулированные в исследовании \cite{kemker2017measuringcatastrophicforgettingneural}. Вследствие обоснованной критики исследования катастрофического забывания на малых наборах данных (например, MNIST), было принято решение об использовании одного из предложенных в этой статье наборов данных, обладающего свойствами, схожими с таковыми в обыкновенных прикладных задачах. Также была перенята предложенная в статье система классификации с разделением подходов для преодоления катастрофического забывания на использующие ансамблирование, регуляризацияю, разреженное кодирование и воспроизведение опыта.
+В процессе адаптации методов борьбы с катастрофическим забыванием использовались замечания, сформулированные в исследовании \cite{kemker2017measuring}. Вследствие обоснованной критики исследования катастрофического забывания на малых наборах данных (например, MNIST), было принято решение об использовании одного из предложенных в этой статье наборов данных, обладающего свойствами, схожими с таковыми в обыкновенных прикладных задачах. Также была перенята предложенная в статье система классификации с разделением подходов для преодоления катастрофического забывания на использующие ансамблирование, регуляризацияю, разреженное кодирование и воспроизведение опыта.
 
-Подробная информация о передовых методах в каждой из этих категорий была получена из соответствующих статей: \cite{fernando2017pathnetevolutionchannelsgradient, gepperth2016bioinspired, coop2013ensemble, Kirkpatrick_2017}. Из них же были получены детали реализации соответствующих архитектур, что позволило воспроизвести результаты статей и послужило источником вдохновения для создания собственных усовершенствованных моделей на базе KAN.
+Подробная информация о передовых методах в каждой из этих категорий была получена из соответствующих статей: \cite{fernando2017pathnet, gepperth2016bioinspired, coop2013ensemble, kirkpatrick2017overcoming}. Из них же были получены детали реализации соответствующих архитектур, что позволило воспроизвести результаты статей и послужило источником вдохновения для создания собственных усовершенствованных моделей на базе KAN.
 
-Помимо исследований по теме непрерывного обучения, посвященным внесению архитектурных изменений в нейронные сети, была использована информация из \cite{goodfellow2015empiricalinvestigationcatastrophicforgetting} о влиянии выбора функций активации и классических приемов регуляризации на эффект от катастрафического забывания. Полученные в этой работе выводы использовались скорее с обратной относительно всего остального целью - не допустить воздействия на проводимое исследование посторонних факторов или же уровнять их воздействие путем подбора таких параметров, которые, согласно выводам данной публикации, не дадут преимуществ какой-либо из архитектур.
+Помимо исследований по теме непрерывного обучения, посвященным внесению архитектурных изменений в нейронные сети, была использована информация из \cite{goodfellow2013empirical} о влиянии выбора функций активации и классических приемов регуляризации на эффект от катастрафического забывания. Полученные в этой работе выводы использовались скорее с обратной относительно всего остального целью - не допустить воздействия на проводимое исследование посторонних факторов или же уровнять их воздействие путем подбора таких параметров, которые, согласно выводам данной публикации, не дадут преимуществ какой-либо из архитектур.
 
 \pagebreak
 
@@ -357,18 +369,7 @@ KAN и MLP в задаче распознавания образов. Набор
 
 \pagebreak
 
-\begin{thebibliography}{1}
-\bibitem{spbubachelorthesis} Daniil Tretyakov. \flqq SPBU Bachelor Thesis\frqq. GitHub repository. URL: \url{https://github.com/trxxxxkov/spbu-bachelor-thesis}.
-\bibitem{liu2025kankolmogorovarnoldnetworks} Liu Z., Wang Y., Vaidya S., Ruehle F., Halverson J., Soljačić M., Hou T.Y., Tegmark M. \flqq KAN: Kolmogorov-Arnold Networks\frqq. arXiv preprint arXiv:2404.19756, 2025. URL: \url{https://arxiv.org/abs/2404.19756}.
-\bibitem{lifelongmachinelearning} Chen Z., Liu B. \flqq Lifelong Machine Learning\frqq. Synthesis Lectures on Artificial Intelligence and Machine Learning. Springer Cham, 1st edition, 2017. DOI: \url{https://doi.org/10.1007/978-3-031-01575-5}.
-\bibitem{kemker2017measuringcatastrophicforgettingneural} Kemker R., McClure M., Abitino A., Hayes T., Kanan C. \flqq Measuring Catastrophic Forgetting in Neural Networks\frqq. arXiv preprint arXiv:1708.02072, 2017. URL: \url{https://arxiv.org/abs/1708.02072}.
-\bibitem{fernando2017pathnetevolutionchannelsgradient} Fernando C., Banarse D., Blundell C., Zwols Y., Ha D., Rusu A.A., Pritzel A., Wierstra D. \flqq PathNet: Evolution Channels Gradient Descent in Super Neural Networks\frqq. arXiv preprint arXiv:1701.08734, 2017. URL: \url{https://arxiv.org/abs/1701.08734}.
-\bibitem{gepperth2016bioinspired} Gepperth A., Karaoguz C. \flqq A Bio-Inspired Incremental Learning Architecture for Applied Perceptual Problems\frqq. Cogn Comput, 8, 924–934, 2016. DOI: \url{https://doi.org/10.1007/s12559-016-9389-5}.
-\bibitem{coop2013ensemble} Coop R., Mishtal A., Arel I. \flqq Ensemble Learning in Fixed Expansion Layer Networks for Mitigating Catastrophic Forgetting\frqq. IEEE Transactions on Neural Networks and Learning Systems, 24(10), 1623–1634, October 2013. DOI: \url{10.1109/TNNLS.2013.2264952}.
-\bibitem{Kirkpatrick_2017} Kirkpatrick J., Pascanu R., Rabinowitz N., Veness J., Desjardins G., Rusu A.A., Milan K., Quan J., Ramalho T., Grabska-Barwinska A., Hassabis D., Clopath C., Kumaran D., Hadsell R. \flqq Overcoming catastrophic forgetting in neural networks\frqq. Proceedings of the National Academy of Sciences, 114(13), 3521–3526, March 2017. DOI: \url{10.1073/pnas.1611835114}.
-\bibitem{goodfellow2015empiricalinvestigationcatastrophicforgetting} Goodfellow I.J., Mirza M., Xiao D., Courville A., Bengio Y. \flqq An Empirical Investigation of Catastrophic Forgetting in Gradient-Based Neural Networks\frqq. arXiv preprint arXiv:1312.6211, 2015. URL: \url{https://arxiv.org/abs/1312.6211}.
-\end{thebibliography}
-
+\printbibliography[heading=bibintoc]
 
 \pagebreak
 

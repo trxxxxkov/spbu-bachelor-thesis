@@ -16,6 +16,10 @@
 *.out
 *.synctex.gz
 *.toc
+*.bbl
+*.bcf
+*.blg
+*.run.xml
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
