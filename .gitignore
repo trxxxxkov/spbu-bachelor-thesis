@@ -19,6 +19,8 @@
 *.bbl
 *.bcf
 *.blg
+*.snm
+*.nav
 *.run.xml
 
 # Byte-compiled / optimized / DLL files
