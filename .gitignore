@@ -16,12 +16,14 @@
 *.out
 *.synctex*
 *.toc
-*.bbl
+*.bbl*
 *.bcf
 *.blg
 *.snm
 *.nav
 *.run.xml
+*.pyg
+/reports/tex/_minted-thesis/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

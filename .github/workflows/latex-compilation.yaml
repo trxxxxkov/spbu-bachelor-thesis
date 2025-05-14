@@ -13,13 +13,17 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Install Pygments for syntax highlight in thesis.tex
+        run: |
+          apt update
+          apt install -y python3-pygments
       - name: Setup reproducible build
         run: echo "SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct)" >> $GITHUB_ENV
       - name: Compile PDFs
         run: |
           cd reports/tex
-          latexmk -interaction=nonstopmode -pdf -outdir=$PWD/../ $PWD/thesis
-          latexmk -interaction=nonstopmode -pdf -outdir=$PWD/../ $PWD/presentation
+          latexmk -interaction=nonstopmode -pdf -shell-escape -outdir=$PWD/../ $PWD/thesis
+          latexmk -interaction=nonstopmode -pdf -shell-escape -outdir=$PWD/../ $PWD/presentation
 
       - name: Mark workspace as safe for Git
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"

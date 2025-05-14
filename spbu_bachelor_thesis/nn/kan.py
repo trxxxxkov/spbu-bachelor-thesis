@@ -1,4 +1,5 @@
-"""Implementation of a KAN layer as a custom PyTorch class"""
+"""Implementation of a KAN layer and a baseline KAN model that are used in the
+CL experiments."""
 
 import math
 
@@ -15,7 +16,9 @@ class KANLayer(torch.nn.Module):
     2. Output is a B-splines linear combination only (no classic activation
         function is added and no scaling is performed).
     3. Input range is fixed (and so is B-spline grid): [0, 1];
-    4. Has a batch normalization layer built-in;"""
+    4. Has a shared batch normalization layer built-in;
+    5. Uses weight initialisation taken from https://github.com/Blealtan/efficient-kan
+    """
 
     spline_order = 3
 
@@ -41,13 +44,17 @@ class KANLayer(torch.nn.Module):
             )
             * self.grid_step
         ).contiguous()
-        # Explicit formulas for cubic B-spline on the four intervals
+        # Explicit formulas for cubic B-spline on the four intervals:
+        # B(s)=s^3/6,                 s in [0,1)
+        # B(s)=(-3s^3+12s^2-12s+4)/6, s in [1,2)
+        # B(s)=(3s^3-24s^2+60s-44)/6, s in [2,3)
+        # B(s)=(-s^3+12s^2-48s+64)/6, s in [3,4)
         cubic_bspline_formula = torch.tensor(
             [
-                [1 / 6, 0, 0, 0],  # B(s)=s³/6, s ∈[0,1)
-                [-3 / 6, 12 / 6, -12 / 6, 4 / 6],  # B(s)=(-3s³+12s²-12s+4)/6, s ∈[1,2)
-                [3 / 6, -24 / 6, 60 / 6, -44 / 6],  # B(s)=(3s³-24s²+60s-44)/6, s ∈[2,3)
-                [-1 / 6, 12 / 6, -48 / 6, 64 / 6],  # B(s)=(-s³+12s²-48s+64)/6, s ∈[3,4)
+                [1 / 6, 0, 0, 0],
+                [-3 / 6, 12 / 6, -12 / 6, 4 / 6],
+                [3 / 6, -24 / 6, 60 / 6, -44 / 6],
+                [-1 / 6, 12 / 6, -48 / 6, 64 / 6],
             ],
             dtype=torch.float,
         ).contiguous()
@@ -65,13 +72,13 @@ class KANLayer(torch.nn.Module):
         )
         return output
 
-    def _initialize_params(self):
+    def _initialize_params(self) -> None:
         """Initialize B-splines' coefficients by interpolating uniform noise.
 
         A least squares problem is considered for Ax = B, where
             x - B-splines' values computed at grid knots (4 per each value in x),
             A - optimal control points, that interpolate reference values,
-            B - reference values sampled from a scaled ~U(0, 1) distribution.
+            B - reference values sampled from a centered scaled normal distribution.
         """
         with torch.no_grad():
             # Get knots inside the grid range
@@ -100,7 +107,7 @@ class KANLayer(torch.nn.Module):
             ).solution
             self.bspline_coeffs.data.copy_(coefficients.permute(2, 0, 1))
 
-    def _bsplines_values_at(self, x: torch.Tensor):
+    def _bsplines_values_at(self, x: torch.Tensor) -> torch.Tensor:
         """Compute values of all cubic B-splines at input point x.
 
         Normalize x to grid scale, find spline_order+1 B-splines per input that
