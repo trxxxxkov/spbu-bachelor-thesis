@@ -58,6 +58,9 @@ class SOMLayer(torch.nn.Module):
     @torch.no_grad()
     def update(self, x: torch.Tensor) -> None:
         """Move prototypes toward corresponding BMUs and update variances"""
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.to(device)
+        x = x.to(device)
         x = self.fl(x)
         input_dist = torch.cdist(x, self.weight)
         # Get indices for the best matching units (nearest prototypes to
@@ -127,14 +130,10 @@ class RehearsalKAN(torch.nn.Module):
         preds = self.classifier(similarities)
         return preds
 
-    def som_init(
-        self,
-        trainloader: torch.utils.data.DataLoader,
-        device: torch.device = torch.device("cpu"),
-    ) -> None:
+    def som_init(self, trainloader: torch.utils.data.DataLoader) -> None:
         """Perform initial optimization of the SOM layer by moving prototypes
         towards samples from dataset's base classes"""
         for batch_inputs, _ in tqdm(
             trainloader, desc="SOMLayer initialization", leave=False
         ):
-            self.som.update(batch_inputs.to(device))
+            self.som.update(batch_inputs)
