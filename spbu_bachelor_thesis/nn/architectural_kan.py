@@ -1,76 +1,75 @@
+"""Implementation of a FELLayer class based on FEL method and a ArchitecturalKAN
+that contains the FELLayer and is used in the CL experiments."""
+
+import math
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 
+from spbu_bachelor_thesis.nn.kan import KANLayer
 
-class FELLayer(nn.Module):
-    """
-    Fixed Expansion Layer (FEL) — модульный разреженный слой для PyTorch.
-    Параметры
-    ----------
-    in_features  : int  — размер входа
-    out_features : int  — размер расширенного пространства (>> in_features)
-    k_pos        : int  — сколько нейронов с макс. активацией оставить
-    k_neg        : int  — сколько нейронов с мин. активацией оставить
-    excitatory_ratio : float  — доля возбуждающих связей для каждого FEL-нейрона
-    """
+
+class FELLayer(torch.nn.Module):
+    """Fixed-weight expansion layer with k-WTA gating & zero-affine LayerNorm."""
 
     def __init__(
         self,
         in_features: int,
-        out_features: int,
-        k_pos: int = 25,
-        k_neg: int = 25,
-        excitatory_ratio: float = 0.5,
-        weight_scale: float = 1.0,
+        out_features: int = None,
+        expansion_factor: int = 10,
+        inputs_fraction: float = None,
+        outputs_fraction: float = None,
+        device: torch.device = None,
     ):
         super().__init__()
+        # Hyperparameters derivation
         self.in_features = in_features
-        self.out_features = out_features
-        self.k_pos = k_pos
-        self.k_neg = k_neg
-
-        # --- разрежённая фиксированная матрица W ---
-        #   +1 / -1 с одинаковым числом входов на нейрон
-        conn_per_neuron = max(1, int(excitatory_ratio * in_features))
-        mask = torch.zeros(out_features, in_features, dtype=torch.float32)
-        for j in range(out_features):
-            idx = torch.randperm(in_features)[:conn_per_neuron]
-            half = conn_per_neuron // 2
-            mask[j, idx[:half]] = weight_scale  # возбуждающие
-            mask[j, idx[half:]] = -weight_scale  # ингибирующие
-        self.register_buffer("W_fixed", mask)  # градиент не требуется
+        self.out_features = out_features or in_features * expansion_factor
+        # Amount of inputs per node.
+        self.inputs_per_node = max(1, int((inputs_fraction or 0.3) * in_features))
+        if outputs_fraction is not None:
+            self.k = max(1, int(outputs_fraction * self.out_features))
+        else:
+            self.k = max(1, int(math.sqrt(self.out_features)))
+        weight = torch.zeros(
+            self.out_features, in_features, device=device, dtype=torch.float
+        )
+        # Weights initialization with Kaiming normal: N(0, 2/inputs_per_node)
+        for row in range(self.out_features):
+            idx = torch.randperm(in_features, device=device)[: self.inputs_per_node]
+            weight[row, idx] = torch.randn(
+                self.inputs_per_node, device=device, dtype=torch.float
+            ) * math.sqrt(2.0 / self.inputs_per_node)
+        self.register_buffer("weight", weight, persistent=False)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        x:  (batch, in_features)
-        out: (batch, out_features) — триггерованная разрежённая активация
-        """
-        # линейное преобразование (нет обучения весов)
-        z = F.linear(x, self.W_fixed)  # (B, out_features) # pylint: disable=E1102
+        outputs = F.linear(x, self.weight)  # pylint: disable=E1102
+        # Non-trainable normalization
+        outputs = F.layer_norm(outputs, (self.out_features,), None, None, 1e-5)
+        # Get indices of k neurons with the largest activation values
+        winners_idx = torch.topk(outputs.abs(), self.k, dim=1, sorted=False).indices
+        sparse_mask = torch.zeros_like(outputs, dtype=torch.bool)
+        # Remove signal from the neurons other than the winners
+        sparse_mask.scatter_(1, winners_idx, True)
+        return outputs * sparse_mask
 
-        # --- триггерование: top-K+, bottom-K- ---
-        with torch.no_grad():
-            # индексы нейронов с макс/мин активациями
-            topk_pos = torch.topk(z, self.k_pos, dim=1, largest=True).indices
-            topk_neg = torch.topk(z, self.k_neg, dim=1, largest=False).indices
 
-            trigger_mask = torch.zeros_like(z, dtype=torch.bool)
-            trigger_mask.scatter_(1, topk_pos, True)
-            trigger_mask.scatter_(1, topk_neg, True)
+class ArchitecturalKAN(torch.nn.Module):
+    """KAN-based architecture that uses FELLayer to overcome the catastrophic
+    forgetting"""
 
-        # фиксированные значения для активных узлов;
-        # detach() предотвращает градиент через константы
-        pos_val = z.max(dim=1, keepdim=True).values.detach()
-        neg_val = z.min(dim=1, keepdim=True).values.detach()
+    def __init__(
+        self,
+        input_dim: int = 2048,
+        hidden_dim: int = 300,
+        output_dim: int = 200,
+        expansion_factor: int = 10,
+    ):
+        super().__init__()
+        self.classifier = torch.nn.Sequential(
+            KANLayer(input_dim, hidden_dim),
+            FELLayer(hidden_dim, expansion_factor=expansion_factor),
+            KANLayer(hidden_dim * expansion_factor, output_dim),
+        )
 
-        out = torch.zeros_like(z)
-        out[trigger_mask & (z >= 0)] = pos_val.expand(-1, self.out_features)[
-            trigger_mask & (z >= 0)
-        ]
-        out[trigger_mask & (z < 0)] = neg_val.expand(-1, self.out_features)[
-            trigger_mask & (z < 0)
-        ]
-
-        # в остальном — нули, градиент течёт через out к предыдущим слоям
-        return out
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.classifier(x)

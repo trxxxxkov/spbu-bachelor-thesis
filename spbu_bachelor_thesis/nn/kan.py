@@ -163,5 +163,5 @@ class BaselineKAN(torch.nn.Module):
             KANLayer(input_dim, hidden_dim), KANLayer(hidden_dim, output_dim)
         )
 
-    def forward(self, x: torch.Tensor):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.classifier(x)

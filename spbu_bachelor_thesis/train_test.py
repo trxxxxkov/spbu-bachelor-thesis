@@ -405,6 +405,7 @@ def _train_loop(
     device: torch.device = torch.device("cpu"),
 ) -> float:
     """Perform a training over an entire dataset and return loss averaged over batches"""
+    model = model.to(device)
     model.train()
     epoch_loss = 0
     for batch_inputs, batch_targets in dataloader:
@@ -427,6 +428,7 @@ def _test_loop(
 ) -> tuple[float, list[torch.Tensor], list[torch.Tensor]]:
     """Perform a validation over an entire dataset, return loss averaged over
     batches, targets and predictions"""
+    model = model.to(device)
     model.eval()
     epoch_loss = 0
     preds = []
