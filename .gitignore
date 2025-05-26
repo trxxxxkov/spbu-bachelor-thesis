@@ -23,6 +23,7 @@
 *.nav
 *.run.xml
 *.pyg
+*.vrb
 /reports/tex/_minted-thesis/
 
 # Byte-compiled / optimized / DLL files

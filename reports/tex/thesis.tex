@@ -72,8 +72,6 @@
 \pagebreak
 
 
-
-
 \specialsection{Введение}
 В последние десятилетия нейронные сети стали одним из ключевых компонентов
 современных интеллектуальных систем. Именно нейронные сети сделали возможным появление алгоритмов, превосходящих 
@@ -159,8 +157,6 @@ B-сплайнов, обладающих локальной поддержкой
 Полный исходный код, а также графические материалы, использованные в данной
 работе, размещены в открытом репозитории на GitHub \cite{spbubachelorthesis}.
 \pagebreak
-
-
 
 
 \specialsection{Постановка задачи}
@@ -249,8 +245,6 @@ KAN в сочетании с методами противодействия к�
 \pagebreak
 
 
-
-
 \specialsection{Обзор литературы}
 Нейронная сеть Колмогорова-Арнольда, составляющая основу данного исследования,
 описана в статьях \cite{liu2024kan,liu2024kan2}, где вводятся архитектуры KAN и
@@ -315,8 +309,6 @@ Weight Consolidation (EWC). Основные сведения, необходи�
 (\cite{cheng1997convergence}). Подробности реализации этих методов описаны в
 главе \ref{chap:improvedmodelsbuilding}.
 \pagebreak
-
-
 
 
 \section{Анализ существующих подходов к преодолению катастрофического забывания}
@@ -641,7 +633,6 @@ Gradient Episodic Memory (A-GEM). В нём для ускорения вычис
 % \pagebreak
 
 
-
 \section{Построение усовершенствованных моделей на базе архитектуры KAN}
 \label{chap:improvedmodelsbuilding}
 Для достижения целей, сформулированных в настоящем исследовании, в первую
@@ -917,8 +908,6 @@ online-обучения, что делает невозможным оптими
 % \pagebreak
 
 
-
-
 \section{Применение усовершенствованных моделей в задачах непрерывного обучения}
 В качестве набора данных используется CUB-200-2011 (\hyperref[tab:dataset]{Таблица 1}), содержащий в себе привычное для прикладных задач количество 
 объектов и классов. Поскольку основная цель исследования - оценка эффективности 
@@ -1015,8 +1004,6 @@ ArchitecturalKAN: \ref{apdx:cil_architectural_kan}; RegularizedKAN:
 % \pagebreak
 
 
-
-
 \section{Анализ экспериментов}
 На основании графиков, полученных в ходе проведения экспериментов в условиях
 непрерывного обучения, отчётливо видно, что в каждом из экспериментов
@@ -1051,8 +1038,6 @@ ArchitecturalKAN: \ref{apdx:cil_architectural_kan}; RegularizedKAN:
 \pagebreak
 
 
-
-
 \specialsection{Выводы}
 По результатам работы все цели достигнуты, а задачи решены в полном объёме.
 \begin{enumerate}
@@ -1074,8 +1059,7 @@ ArchitecturalKAN: \ref{apdx:cil_architectural_kan}; RegularizedKAN:
         KAN при их использовании совместно с методами противодействия
         катастрофическому забыванию в условиях непрерывного обучения.
 \end{enumerate}
-
-
+\pagebreak
 
 
 \specialsection{Заключение}
@@ -1096,11 +1080,8 @@ ArchitecturalKAN: \ref{apdx:cil_architectural_kan}; RegularizedKAN:
 \pagebreak
 
 
-
-
 \printbibliography[heading=bibintoc]
 \pagebreak
-
 
 
 \appendix
@@ -1133,8 +1114,6 @@ ArchitecturalKAN: \ref{apdx:cil_architectural_kan}; RegularizedKAN:
     \inputminted{python}{../../spbu_bachelor_thesis/nn/rehearsal_kan.py}
 \end{center}
 % \pagebreak
-
-
 
 
 \section{Графики с результатами обучения с перестановкой признаков}
