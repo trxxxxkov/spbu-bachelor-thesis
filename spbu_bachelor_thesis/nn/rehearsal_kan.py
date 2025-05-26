@@ -76,14 +76,6 @@ class SOMLayer(torch.nn.Module):
         )
         self.grid_variance.copy_((1 - self.var_lr) * self.grid_variance)
 
-    # def _sparsify_similarities(self, similarities: torch.Tensor) -> torch.Tensor:
-    #     """Sparsify similarities by sharpening it and comparing with a threshold"""
-    #     sharp_similarities = similarities.pow(self.sharp_order) / (
-    #         similarities.max(dim=1, keepdim=True).values + 1e-6
-    #     ).pow(self.sharp_order - 1)
-    #     sparse_mask = (sharp_similarities >= self.sparse_min).float()
-    #     return sharp_similarities * sparse_mask
-
     def _get_grid_similarities(self, bmu_idx: torch.Tensor) -> torch.Tensor:
         """Calculate a grid similarity between given best matching units and
         other prototypes."""
