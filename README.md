@@ -74,5 +74,5 @@ spbu-bachelor-thesis/
 └── README.md        
 ```
 
-The thesis template was adapted from [itonik/spbu_diploma](https://github.com/itonik/spbu_diploma),
-and the presentation template was adapted from [spbu-se/report_presentation_template](https://github.com/spbu-se/report_presentation_template).
+The thesis template was adapted from [itonik/spbu_diploma](https://github.com/itonik/spbu_diploma);
+the presentation template was adapted from [spbu-se/report_presentation_template](https://github.com/spbu-se/report_presentation_template).
