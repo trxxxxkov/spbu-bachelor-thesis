@@ -58,11 +58,11 @@ spbu-bachelor-thesis/
 │   └── thesis.pdf          # Pre-built PDF of the full thesis
 ├── spbu_bachelor_thesis/
 │   ├── nn/
-│   │   ├── ensemble_kan.py
-│   │   ├── kan.py              # Kolmogorov-Arnold Network layer and model
-│   │   ├── mlp.py              # Baseline multilayer perceptron implementation
-│   │   ├── regularized_kan.py  # KAN variant with explicit weight regularisation
-│   │   └── rehearsal_kan.py    # KAN augmented with SOM layer for CL studies
+│   │   ├── architectural_kan.py  # KAN-based model with a FEL layer
+│   │   ├── kan.py                # Kolmogorov-Arnold Network model
+│   │   ├── mlp.py                # Multilayer perceptron model
+│   │   ├── regularized_kan.py    # KAN-based model with explicit weights regularisation
+│   │   └── rehearsal_kan.py      # KAN-based model with a SOM layer
 │   ├── datasets.py          # Dataset loaders and preprocessing pipelines
 │   ├── global_constants.py  # Paths, seeds and hyper-params
 │   ├── metrics.py           # Custom CL and metrics and MPC accuracy implementation
